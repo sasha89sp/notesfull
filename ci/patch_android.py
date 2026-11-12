@@ -93,4 +93,41 @@ class MainActivity : FlutterFragmentActivity() {{
     }}
 }}
 ''', encoding='utf-8')
+
+# --- Все библиотеки (плагины) собираем с compileSdk 36: часть плагинов
+# (flutter_plugin_android_lifecycle) требует его, а file_picker указывает 34.
+KTS = """
+subprojects {
+    val fixSdk = Action<Project> {
+        val ext = extensions.findByName("android")
+        if (ext != null) {
+            try {
+                ext.javaClass
+                    .getMethod("setCompileSdkVersion", Int::class.javaPrimitiveType)
+                    .invoke(ext, 36)
+            } catch (e: Exception) {
+                println("compileSdk patch skipped for " + name + ": " + e)
+            }
+        }
+    }
+    if (state.executed) fixSdk.execute(this) else afterEvaluate(fixSdk)
+}
+"""
+GROOVY = """
+subprojects {
+    def fixSdk = { Project pr ->
+        if (pr.extensions.findByName("android") != null) {
+            pr.android.compileSdkVersion 36
+        }
+    }
+    if (project.state.executed) { fixSdk(project) } else { project.afterEvaluate(fixSdk) }
+}
+"""
+for name, code in [('build.gradle.kts', KTS), ('build.gradle', GROOVY)]:
+    f = root / name
+    if f.exists():
+        t = f.read_text(encoding='utf-8')
+        if 'fixSdk' not in t:
+            f.write_text(t + code, encoding='utf-8')
+        print('compileSdk patch ->', name)
 print('android patched')
