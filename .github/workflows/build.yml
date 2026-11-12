@@ -131,7 +131,10 @@ jobs:
           sed -i 's/^  archive: .*/&\n  whisper_ggml: ^2.9.0/' pubspec.yaml
 
       - run: flutter pub get
-      - run: flutter build windows --release
+      - name: Build Windows
+        run: flutter build windows --release
+        env:
+          CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
 
       - uses: actions/upload-artifact@v4
         with:
@@ -171,6 +174,13 @@ jobs:
           cp "$RUNNER_TEMP/bak/pubspec.yaml" pubspec.yaml
 
       - run: flutter pub get
+
+      - name: Disable -Werror in Linux plugins
+        shell: bash
+        run: |
+          grep -rl -e '-Werror' "$HOME/.pub-cache/hosted" --include=CMakeLists.txt | xargs -r sed -i 's/-Werror//g'
+          sed -i 's/-Werror//g' linux/CMakeLists.txt
+
       - run: flutter build linux --release
 
       - uses: actions/upload-artifact@v4
