@@ -58,6 +58,7 @@ class _AutofillPickerState extends State<AutofillPicker> {
   void initState() {
     super.initState();
     setSecure(true);
+    p.tryAutoUnlock();
   }
 
   @override

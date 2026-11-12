@@ -8,22 +8,50 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
+import 'applog.dart';
 import 'crypto.dart';
 import 'google.dart';
 import 'models.dart';
 import 'sync.dart';
+import 'synchist.dart';
 import 'util.dart';
 
+class ProfileInfo {
+  String id;
+  String name;
+  String kind; // local | online
+  String dir; // пусто = корневая папка (профиль из старой версии)
+  ProfileInfo(
+      {required this.id, this.name = '', this.kind = 'local', this.dir = ''});
+  Map<String, dynamic> toJson() =>
+      {'id': id, 'name': name, 'kind': kind, 'dir': dir};
+  factory ProfileInfo.fromJson(Map<String, dynamic> j) => ProfileInfo(
+        id: (j['id'] ?? '') as String,
+        name: (j['name'] ?? '') as String,
+        kind: (j['kind'] ?? 'local') as String,
+        dir: (j['dir'] ?? '') as String,
+      );
+}
+
 class Store extends ChangeNotifier {
-  late Directory dir;
+  late Directory baseDir;
+  late Directory dir; // папка текущего профиля
+  List<ProfileInfo> profiles = [];
+  String curId = '';
+  bool wantPicker = false;
   SecretKey? key; // локальный ключ (случайная соль)
   SecretKey? syncKey; // ключ синхронизации личных данных (одинаков на устройствах)
   List<Note> notes = [];
   List<CalEvent> events = [];
   List<Comment> comments = [];
+  List<NoteFolder> folders = [];
   Settings settings = Settings();
   bool syncing = false;
   String status = '';
+  String progressText = '';
+  double? progress;
+  List<SyncRecord> history = [];
+  CancelToken? _tok;
   VoidCallback? onEventsChanged;
 
   SecretKey? _fk;
@@ -36,13 +64,153 @@ class Store extends ChangeNotifier {
   String get profileId => settings.profileId;
 
   Future<void> init() async {
-    dir = await getApplicationSupportDirectory();
-    if (!await dir.exists()) await dir.create(recursive: true);
+    baseDir = await getApplicationSupportDirectory();
+    if (!await baseDir.exists()) await baseDir.create(recursive: true);
+    dir = baseDir;
+    await _loadIndex();
   }
 
   File _f(String name) => File('${dir.path}${Platform.pathSeparator}$name');
 
-  Future<bool> hasVault() => _f('vault.json').exists();
+  File get _indexFile =>
+      File('${baseDir.path}${Platform.pathSeparator}profiles.json');
+
+  Future<void> _loadIndex() async {
+    profiles = [];
+    try {
+      if (await _indexFile.exists()) {
+        final j = jsonDecode(await _indexFile.readAsString()) as Map<String, dynamic>;
+        profiles = ((j['profiles'] ?? []) as List)
+            .map((e) => ProfileInfo.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+        curId = (j['last'] ?? '') as String;
+      } else if (await File('${baseDir.path}${Platform.pathSeparator}vault.json')
+          .exists()) {
+        // хранилище из прошлой версии становится первым профилем
+        profiles = [ProfileInfo(id: 'legacy')];
+        curId = 'legacy';
+        await _saveIndex();
+      }
+    } catch (e) {
+      AppLog.I.e('profiles', 'Не удалось прочитать список профилей: $e');
+    }
+    if (profiles.isNotEmpty &&
+        !profiles.any((p) => p.id == curId)) {
+      curId = profiles.first.id;
+    }
+    if (curId.isNotEmpty) selectProfile(curId, save: false);
+  }
+
+  Future<void> _saveIndex() => writeAtomic(
+      _indexFile,
+      utf8.encode(jsonEncode({
+        'last': curId,
+        'profiles': profiles.map((p) => p.toJson()).toList(),
+      })));
+
+  Future<bool> hasVault() async => profiles.isNotEmpty;
+
+  ProfileInfo? profileById(String id) {
+    for (final p in profiles) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
+  ProfileInfo? profileByName(String name) {
+    final n = name.trim().toLowerCase();
+    if (n.isEmpty) return null;
+    for (final p in profiles) {
+      if (p.name.trim().toLowerCase() == n) return p;
+    }
+    return null;
+  }
+
+  void selectProfile(String id, {bool save = true}) {
+    final p = profileById(id);
+    if (p == null) return;
+    curId = id;
+    dir = p.dir.isEmpty
+        ? baseDir
+        : Directory('${baseDir.path}${Platform.pathSeparator}${p.dir}');
+    if (save) _saveIndex();
+  }
+
+  /// Создать новый профиль (локальный или онлайн) и войти в него.
+  Future<void> createProfile(String name, String pw,
+      {String kind = 'local',
+      String url = '',
+      String user = '',
+      String pass = ''}) async {
+    final id = newId();
+    final p = ProfileInfo(id: id, name: name, kind: kind, dir: 'p_$id');
+    profiles.add(p);
+    selectProfile(id, save: false);
+    await dir.create(recursive: true);
+    await create(pw);
+    settings.author = name;
+    if (kind == 'online') {
+      settings.url = url;
+      settings.user = user;
+      settings.pass = pass;
+    }
+    await saveSettings();
+    await _saveIndex();
+    AppLog.I.i('profile', 'Создан профиль «$name» ($kind)');
+  }
+
+  Future<void> renameCurrent(String name) async {
+    final p = profileById(curId);
+    if (p == null || name.trim().isEmpty) return;
+    p.name = name.trim();
+    await _saveIndex();
+  }
+
+  String _kid(String base, String id) => id == 'legacy' || id.isEmpty ? base : '${base}_$id';
+  String _bk(String base) => _kid(base, curId);
+
+  Future<void> rememberLogin(String pw) async {
+    try {
+      await _ss.write(key: _bk('rpw'), value: pw);
+    } catch (_) {}
+  }
+
+  Future<String?> rememberedPw(String id) async {
+    try {
+      return await _ss.read(key: _kid('rpw', id));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> forgetLogin() async {
+    try {
+      await _ss.delete(key: _bk('rpw'));
+    } catch (_) {}
+  }
+
+  /// Выход из профиля: данные в памяти очищаются, на диске остаются.
+  Future<void> logout({bool picker = false}) async {
+    cancelSync();
+    _debounce?.cancel();
+    for (var i = 0; i < 100 && syncing; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    await _chain;
+    key = null;
+    syncKey = null;
+    notes = [];
+    events = [];
+    comments = [];
+    folders = [];
+    history = [];
+    settings = Settings();
+    _fk = null;
+    status = '';
+    wantPicker = picker;
+    AppLog.I.i('profile', 'Выход из профиля');
+    notifyListeners();
+  }
 
   // ------------------------------------------------------------ вход
 
@@ -64,6 +232,8 @@ class Store extends ChangeNotifier {
     notes = [];
     events = [];
     comments = [];
+    folders = [];
+    history = [];
     settings = Settings(profileId: newId());
     await save();
   }
@@ -112,6 +282,12 @@ class Store extends ChangeNotifier {
         : (c as List)
             .map((x) => Comment.fromJson(Map<String, dynamic>.from(x as Map)))
             .toList();
+    final fo = await readJson('folders.enc');
+    folders = fo == null
+        ? []
+        : (fo as List)
+            .map((x) => NoteFolder.fromJson(Map<String, dynamic>.from(x as Map)))
+            .toList();
     final s = await readJson('settings.enc');
     settings = s == null
         ? Settings()
@@ -120,6 +296,13 @@ class Store extends ChangeNotifier {
       settings.profileId = newId();
       await saveSettings();
     }
+    AppLog.I.verbose = settings.verboseLog;
+    final h = await readJson('synchist.enc');
+    history = h == null
+        ? []
+        : (h as List)
+            .map((x) => SyncRecord.fromJson(Map<String, dynamic>.from(x as Map)))
+            .toList();
   }
 
   // ------------------------------------------------------------ биометрия
@@ -134,7 +317,7 @@ class Store extends ChangeNotifier {
 
   Future<bool> bioStored() async {
     try {
-      return (await _ss.read(key: 'k')) != null;
+      return (await _ss.read(key: _bk('k'))) != null;
     } catch (_) {
       return false;
     }
@@ -147,9 +330,9 @@ class Store extends ChangeNotifier {
         options: const AuthenticationOptions(stickyAuth: true),
       );
       if (!ok) return false;
-      await _ss.write(key: 'k', value: base64Encode(await key!.extractBytes()));
+      await _ss.write(key: _bk('k'), value: base64Encode(await key!.extractBytes()));
       await _ss.write(
-          key: 'sk', value: base64Encode(await syncKey!.extractBytes()));
+          key: _bk('sk'), value: base64Encode(await syncKey!.extractBytes()));
       settings.bio = true;
       await saveSettings();
       return true;
@@ -160,8 +343,8 @@ class Store extends ChangeNotifier {
 
   Future<void> disableBiometric() async {
     try {
-      await _ss.delete(key: 'k');
-      await _ss.delete(key: 'sk');
+      await _ss.delete(key: _bk('k'));
+      await _ss.delete(key: _bk('sk'));
     } catch (_) {}
     settings.bio = false;
     await saveSettings();
@@ -174,8 +357,8 @@ class Store extends ChangeNotifier {
         options: const AuthenticationOptions(stickyAuth: true),
       );
       if (!ok) return false;
-      final k = await _ss.read(key: 'k');
-      final sk = await _ss.read(key: 'sk');
+      final k = await _ss.read(key: _bk('k'));
+      final sk = await _ss.read(key: _bk('sk'));
       if (k == null || sk == null) return false;
       key = SecretKey(base64Decode(k));
       syncKey = SecretKey(base64Decode(sk));
@@ -208,12 +391,15 @@ class Store extends ChangeNotifier {
       _saveJson('events.enc', events.map((e) => e.toJson()).toList());
   Future<void> saveComments() =>
       _saveJson('comments.enc', comments.map((c) => c.toJson()).toList());
+  Future<void> saveFolders() =>
+      _saveJson('folders.enc', folders.map((f) => f.toJson()).toList());
   Future<void> saveSettings() => _saveJson('settings.enc', settings.toJson());
 
   Future<void> save() async {
     await saveNotes();
     await saveEvents();
     await saveComments();
+    await saveFolders();
     await saveSettings();
   }
 
@@ -230,6 +416,98 @@ class Store extends ChangeNotifier {
     notifyListeners();
     saveEvents();
     onEventsChanged?.call();
+    schedSync();
+  }
+
+  // ------------------------------------------------------------ папки заметок
+
+  List<NoteFolder> childFolders(String parent) {
+    final l = folders.where((f) => !f.deleted && f.parent == parent).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return l;
+  }
+
+  NoteFolder? folderById(String id) {
+    for (final f in folders) {
+      if (f.id == id && !f.deleted) return f;
+    }
+    return null;
+  }
+
+  /// Путь «Родитель / Папка»
+  String folderPath(String id) {
+    final parts = <String>[];
+    var cur = id;
+    var guard = 0;
+    while (cur.isNotEmpty && guard++ < 50) {
+      final f = folderById(cur);
+      if (f == null) break;
+      parts.insert(0, f.name);
+      cur = f.parent;
+    }
+    return parts.join(' / ');
+  }
+
+  bool isInside(String id, String ancestor) {
+    var cur = id;
+    var guard = 0;
+    while (cur.isNotEmpty && guard++ < 50) {
+      if (cur == ancestor) return true;
+      cur = folderById(cur)?.parent ?? '';
+    }
+    return false;
+  }
+
+  /// Число заметок в папке и всех вложенных.
+  int notesIn(String id) => notes
+      .where((n) => !n.deleted && n.folder.isNotEmpty && isInside(n.folder, id))
+      .length;
+
+  NoteFolder addFolder(String name, String parent) {
+    final f = NoteFolder.create(name, parent);
+    folders.add(f);
+    foldersChanged();
+    return f;
+  }
+
+  void renameFolder(NoteFolder f, String name) {
+    f.name = name;
+    f.updatedAt = nowMs();
+    foldersChanged();
+  }
+
+  void moveFolder(NoteFolder f, String parent) {
+    if (parent == f.id || isInside(parent, f.id)) return;
+    f.parent = parent;
+    f.updatedAt = nowMs();
+    foldersChanged();
+  }
+
+  /// Удаление папки: вложенное (папки и заметки) переходит на уровень выше.
+  void deleteFolder(NoteFolder f) {
+    for (final c in folders.where((x) => x.parent == f.id && !x.deleted)) {
+      c.parent = f.parent;
+      c.updatedAt = nowMs();
+    }
+    for (final n in notes.where((n) => n.folder == f.id)) {
+      n.folder = f.parent;
+      n.updatedAt = nowMs();
+    }
+    f.deleted = true;
+    f.updatedAt = nowMs();
+    foldersChanged();
+    changed();
+  }
+
+  void moveNote(Note n, String folder) {
+    n.folder = folder;
+    n.updatedAt = nowMs();
+    changed();
+  }
+
+  void foldersChanged() {
+    notifyListeners();
+    saveFolders();
     schedSync();
   }
 
@@ -305,31 +583,106 @@ class Store extends ChangeNotifier {
 
   // ------------------------------------------------------------ синхронизация
 
+  SyncRecord? get lastSync => history.isEmpty ? null : history.last;
+
+  Future<void> addHistory(SyncRecord r) async {
+    history.add(r);
+    if (history.length > 100) history.removeRange(0, history.length - 100);
+    await _saveJson('synchist.enc', history.map((x) => x.toJson()).toList());
+    notifyListeners();
+  }
+
+  Future<void> clearHistory() async {
+    history = [];
+    await _saveJson('synchist.enc', <dynamic>[]);
+    notifyListeners();
+  }
+
+  void setProgress(String text, [double? frac]) {
+    progressText = text;
+    progress = frac;
+    notifyListeners();
+  }
+
+  /// Прервать текущую синхронизацию; локальные данные не теряются.
+  void cancelSync() {
+    final t = _tok;
+    if (t != null && !t.cancelled) {
+      t.cancelled = true;
+      progressText = 'Отмена…';
+      notifyListeners();
+    }
+  }
+
   Future<void> syncAll() async {
     if (syncing || key == null) return;
     if (!settings.syncConfigured && !settings.googleConfigured) return;
     syncing = true;
+    final tok = _tok = CancelToken();
     status = 'Синхронизация…';
+    progressText = 'Подготовка…';
+    progress = null;
     notifyListeners();
-    final parts = <String>[];
-    if (settings.syncConfigured) {
-      try {
-        parts.add('WebDAV ${await SyncService.run(this)}');
-      } catch (e) {
-        parts.add('WebDAV: ошибка — $e');
+    final all = SyncStats();
+    final rec = SyncRecord(at: nowMs(), status: 'ok');
+    var failed = false;
+    AppLog.I.i('sync', 'Старт синхронизации');
+
+    try {
+      if (settings.syncConfigured) {
+        rec.targets.add('WebDAV');
+        setProgress('WebDAV: обмен данными…');
+        final r = SyncStats();
+        try {
+          await SyncService.run(this, r, tok);
+        } catch (e, st) {
+          if (e is SyncCancelled) rethrow;
+          failed = true;
+          r.log.add('WebDAV: ошибка — $e');
+          AppLog.I.e('sync', 'WebDAV: $e', st);
+        } finally {
+          all.merge(r);
+        }
       }
-    }
-    if (settings.googleConfigured) {
-      try {
-        parts.add('Google ${await GoogleCal.sync(this)}');
-      } catch (e) {
-        parts.add('Google: ошибка — $e');
+      tok.check();
+      if (settings.googleConfigured) {
+        rec.targets.add('Google Календарь');
+        setProgress('Google Календарь…');
+        final r = SyncStats();
+        try {
+          await GoogleCal.sync(this, r, tok);
+        } catch (e, st) {
+          if (e is SyncCancelled) rethrow;
+          failed = true;
+          r.log.add('Google: ошибка — $e');
+          AppLog.I.e('sync', 'Google: $e', st);
+        } finally {
+          all.merge(r);
+        }
       }
+    } on SyncCancelled {
+      rec.status = 'cancelled';
+      AppLog.I.i('sync', 'Синхронизация отменена пользователем');
     }
-    status = parts.join('\n');
+
+    if (rec.status != 'cancelled') rec.status = failed ? 'error' : 'ok';
+    rec.up = all.up;
+    rec.down = all.down;
+    rec.conflicts = all.conflicts;
+    rec.log = all.log;
+    AppLog.I.i('sync',
+        '${rec.statusText}: отправлено ${all.upTotal}, получено ${all.downTotal}');
+
     syncing = false;
+    _tok = null;
+    progressText = '';
+    progress = null;
+    status = '${rec.when}: ${rec.statusText}';
     await save();
-    onEventsChanged?.call();
+    await addHistory(rec);
+    if (all.up.containsKey('events') || all.down.containsKey('events')) {
+      onEventsChanged?.call();
+    }
     notifyListeners();
   }
 

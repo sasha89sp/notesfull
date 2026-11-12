@@ -20,10 +20,12 @@ class Shell extends StatefulWidget {
   final Store store;
   final PassStore pass;
   final void Function(String theme) onTheme;
+  final Future<void> Function(bool picker) onLogout;
   const Shell(
       {super.key,
       required this.store,
       required this.pass,
+      required this.onLogout,
       required this.onTheme});
   @override
   State<Shell> createState() => _ShellState();
@@ -162,7 +164,9 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     final sortedTags = tags.toList()..sort();
     return Drawer(
       child: SafeArea(
-        child: ListView(children: [
+        child: Column(children: [
+          Expanded(
+              child: ListView(children: [
           Padding(
             padding: const EdgeInsets.all(20),
             child: Row(children: [
@@ -237,7 +241,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           _drawerItem(Icons.settings_outlined, 'Настройки', () {
             Navigator.of(context).push(MaterialPageRoute<void>(
                 builder: (_) =>
-                    SettingsScreen(store: s, onTheme: widget.onTheme)));
+                    SettingsScreen(
+              store: s, onTheme: widget.onTheme, onLogout: widget.onLogout)));
           }),
           ListTile(
             leading: Icon(Theme.of(context).brightness == Brightness.dark
@@ -251,14 +256,60 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
               widget.onTheme(s.settings.theme);
             },
           ),
-          if (s.status.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(s.status,
-                  style: TextStyle(fontSize: 12, color: Pal.secondary(context))),
-            ),
+        ])),
+          _syncPanel(),
         ]),
       ),
+    );
+  }
+
+  void _syncNow() {
+    if (!s.settings.syncConfigured && !s.settings.googleConfigured) {
+      Navigator.pop(context);
+      Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => SettingsScreen(
+              store: s, onTheme: widget.onTheme, onLogout: widget.onLogout)));
+    } else {
+      s.syncAll();
+    }
+  }
+
+  /// Внизу бокового меню: кнопка синхронизации и итог последней.
+  Widget _syncPanel() {
+    final last = s.lastSync;
+    final col = last == null
+        ? Pal.secondary(context)
+        : last.status == 'ok'
+            ? Pal.success(context)
+            : last.status == 'cancelled'
+                ? Pal.secondary(context)
+                : Pal.error(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+      decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: Pal.border(context), width: 0.5))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (s.syncing) ...[
+          LinearProgressIndicator(value: s.progress),
+          const SizedBox(height: 6),
+          Text(s.progressText,
+              style: TextStyle(fontSize: 12, color: Pal.secondary(context))),
+          const SizedBox(height: 8),
+          OutlinedButton(onPressed: s.cancelSync, child: const Text('Отменить')),
+        ] else
+          FilledButton.icon(
+            onPressed: _syncNow,
+            icon: const Icon(Icons.sync),
+            label: const Text('Синхронизировать'),
+          ),
+        const SizedBox(height: 8),
+        if (last == null)
+          Text('Синхронизаций ещё не было',
+              style: TextStyle(fontSize: 12, color: Pal.secondary(context)))
+        else
+          Text('Последняя: ${last.when}\nСтатус: ${last.statusText}',
+              style: TextStyle(fontSize: 12, color: col)),
+      ]),
     );
   }
 
@@ -300,9 +351,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                       fontSize: 28, fontWeight: FontWeight.w700)),
               actions: [
                 if (s.syncing)
-                  const Padding(
-                    padding: EdgeInsets.all(14),
-                    child: SizedBox(
+                  IconButton(
+                    tooltip: 'Отменить синхронизацию',
+                    onPressed: s.cancelSync,
+                    icon: const SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2)),
@@ -316,7 +368,9 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                           !s.settings.googleConfigured) {
                         Navigator.of(context).push(MaterialPageRoute<void>(
                             builder: (_) => SettingsScreen(
-                                store: s, onTheme: widget.onTheme)));
+                                store: s,
+                                onTheme: widget.onTheme,
+                                onLogout: widget.onLogout)));
                       } else {
                         s.syncAll();
                       }
@@ -327,6 +381,13 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             drawer: _drawer(),
             body: Stack(children: [
               _body(),
+              if (s.syncing)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: LinearProgressIndicator(value: s.progress, minHeight: 2),
+                ),
               if (_tab == 0) Fab(onPressed: _quickCreate),
             ]),
             bottomNavigationBar: NavigationBar(

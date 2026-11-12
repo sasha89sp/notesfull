@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'applog.dart';
 import 'autofill.dart';
 import 'desktop.dart';
 import 'lock.dart';
@@ -10,12 +13,23 @@ import 'shell.dart';
 import 'store.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isWindows) {
-    await Desktop.I.init();
-  }
-  final af = await autofillRequest();
-  runApp(App(autofill: af));
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    await AppLog.I.init();
+    FlutterError.onError = (d) {
+      AppLog.I.e('flutter', d.exceptionAsString(), d.stack);
+      FlutterError.presentError(d);
+    };
+    PlatformDispatcher.instance.onError = (e, st) {
+      AppLog.I.e('platform', '$e', st);
+      return true;
+    };
+    if (Platform.isWindows) {
+      await Desktop.I.init();
+    }
+    final af = await autofillRequest();
+    runApp(App(autofill: af));
+  }, (e, st) => AppLog.I.e('zone', '$e', st));
 }
 
 ThemeData _theme(Brightness b) {
@@ -46,6 +60,8 @@ ThemeData _theme(Brightness b) {
   );
 }
 
+final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
+
 class App extends StatefulWidget {
   final AutofillRequest? autofill;
   const App({super.key, this.autofill});
@@ -70,9 +86,23 @@ class _AppState extends State<App> {
   Future<void> _boot() async {
     await store.init();
     final e = await store.hasVault();
+    if (!mounted) return;
     setState(() {
       _exists = e;
       _ready = true;
+    });
+  }
+
+  /// Выход из профиля / смена профиля: возвращаемся на экран входа.
+  Future<void> _logout(bool picker) async {
+    navKey.currentState?.popUntil((r) => r.isFirst);
+    await pass.forgetSaved();
+    pass.lock();
+    await store.logout(picker: picker);
+    if (!mounted) return;
+    setState(() {
+      _unlocked = false;
+      _exists = store.profiles.isNotEmpty;
     });
   }
 
@@ -99,6 +129,7 @@ class _AppState extends State<App> {
       home = Shell(
         store: store,
         pass: pass,
+        onLogout: _logout,
         onTheme: (v) {
           store.settings.theme = v;
           store.saveSettings();
@@ -108,6 +139,7 @@ class _AppState extends State<App> {
     }
     return MaterialApp(
       title: 'Заметки',
+      navigatorKey: navKey,
       debugShowCheckedModeBanner: false,
       theme: _theme(Brightness.light),
       darkTheme: _theme(Brightness.dark),

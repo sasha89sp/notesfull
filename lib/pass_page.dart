@@ -136,6 +136,8 @@ class _PassPageState extends State<PassPage> {
   final _search = TextEditingController();
   String? _err;
   bool _busy = false;
+  bool _save = false;
+  int _saveMin = 30; // -1 — до выхода из профиля
   String _folder = '\u0000all'; // \u0000all | \u0000fav | имя папки
   String _q = '';
 
@@ -145,6 +147,7 @@ class _PassPageState extends State<PassPage> {
   void initState() {
     super.initState();
     setSecure(true);
+    p.tryAutoUnlock();
   }
 
   @override
@@ -176,9 +179,14 @@ class _PassPageState extends State<PassPage> {
     try {
       if (p.exists) {
         final ok = await p.unlock(pw);
-        if (!ok) _err = 'Неверный пароль';
+        if (!ok) {
+          _err = 'Неверный пароль';
+        } else if (_save) {
+          await p.rememberPassword(pw, _saveMin);
+        }
       } else {
         await p.create(pw);
+        if (_save) await p.rememberPassword(pw, _saveMin);
       }
     } catch (e) {
       _err = 'Ошибка: $e';
@@ -239,6 +247,29 @@ class _PassPageState extends State<PassPage> {
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Pal.error(context))),
                 ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                dense: true,
+                title: const Text('Сохранить пароль'),
+                value: _save,
+                onChanged: (v) => setState(() => _save = v ?? false),
+              ),
+              if (_save)
+                Row(children: [
+                  const Expanded(child: Text('На срок')),
+                  DropdownButton<int>(
+                    value: _saveMin,
+                    items: const [
+                      DropdownMenuItem(value: 15, child: Text('15 минут')),
+                      DropdownMenuItem(value: 30, child: Text('30 минут')),
+                      DropdownMenuItem(value: 60, child: Text('1 час')),
+                      DropdownMenuItem(value: 1440, child: Text('1 день')),
+                      DropdownMenuItem(value: -1, child: Text('До выхода из профиля')),
+                    ],
+                    onChanged: (v) => setState(() => _saveMin = v ?? 30),
+                  ),
+                ]),
               const SizedBox(height: 18),
               FilledButton(
                 onPressed: _busy ? null : _submit,
@@ -321,13 +352,70 @@ class _PassPageState extends State<PassPage> {
     if (saved && mounted) toast(context, 'Файл сохранён');
   }
 
+  Future<String?> _askName(String title, [String initial = '']) async {
+    final c = TextEditingController(text: initial);
+    final r = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+            controller: c,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Название')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Отмена')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, c.text.trim()),
+              child: const Text('Готово')),
+        ],
+      ),
+    );
+    c.dispose();
+    return (r == null || r.isEmpty) ? null : r;
+  }
+
+  Future<void> _newFolder() async {
+    final n = await _askName('Новая папка');
+    if (n != null) p.createFolder(n);
+  }
+
+  Future<void> _folderMenu(String name) async {
+    final act = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Переименовать'),
+              onTap: () => Navigator.pop(ctx, 'ren')),
+          ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Удалить папку (записи сохранятся)'),
+              onTap: () => Navigator.pop(ctx, 'del')),
+        ]),
+      ),
+    );
+    if (act == 'ren') {
+      final n = await _askName('Переименовать папку', name);
+      if (n != null) {
+        p.renameFolder(name, n);
+        if (_folder == name) setState(() => _folder = n);
+      }
+    } else if (act == 'del') {
+      p.deleteFolder(name);
+      if (_folder == name) setState(() => _folder = '\u0000all');
+    }
+  }
+
   Widget _list() {
     final all = p.visible;
-    final folders = all.map((e) => e.folder).where((f) => f.isNotEmpty).toSet().toList()
-      ..sort();
+    final folders = p.folderNames;
     var list = all;
     if (_folder == '\u0000fav') {
       list = list.where((e) => e.favorite).toList();
+    } else if (_folder == '\u0000none') {
+      list = list.where((e) => e.folder.isEmpty).toList();
     } else if (_folder != '\u0000all') {
       list = list.where((e) => e.folder == _folder).toList();
     }
@@ -345,12 +433,15 @@ class _PassPageState extends State<PassPage> {
       return a.title.toLowerCase().compareTo(b.title.toLowerCase());
     });
 
-    Widget chip(String key, String label) => Padding(
+    Widget chip(String key, String label, {bool folder = false}) => Padding(
           padding: const EdgeInsets.only(right: 6),
-          child: ChoiceChip(
-            label: Text(label),
-            selected: _folder == key,
-            onSelected: (_) => setState(() => _folder = key),
+          child: GestureDetector(
+            onLongPress: folder ? () => _folderMenu(key) : null,
+            child: ChoiceChip(
+              label: Text(label),
+              selected: _folder == key,
+              onSelected: (_) => setState(() => _folder = key),
+            ),
           ),
         );
 
@@ -372,20 +463,27 @@ class _PassPageState extends State<PassPage> {
             PopupMenuButton<String>(
               onSelected: (v) {
                 if (v == 'lock') {
+                  p.forgetSaved();
                   p.lock();
+                } else if (v == 'forget') {
+                  p.forgetSaved();
+                  toast(context, 'Сохранённый пароль забыт');
                 } else if (v == 'imp') {
                   _import();
                 } else {
                   _export(v);
                 }
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'imp', child: Text('Импорт…')),
-                PopupMenuItem(value: 'csv', child: Text('Экспорт CSV')),
-                PopupMenuItem(value: 'bwjson', child: Text('Экспорт Bitwarden JSON')),
-                PopupMenuItem(value: 'bwcsv', child: Text('Экспорт Bitwarden CSV')),
-                PopupMenuItem(value: 'kp', child: Text('Экспорт KeePass XML')),
-                PopupMenuItem(value: 'lock', child: Text('Заблокировать')),
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'imp', child: Text('Импорт…')),
+                const PopupMenuItem(value: 'csv', child: Text('Экспорт CSV')),
+                const PopupMenuItem(value: 'bwjson', child: Text('Экспорт Bitwarden JSON')),
+                const PopupMenuItem(value: 'bwcsv', child: Text('Экспорт Bitwarden CSV')),
+                const PopupMenuItem(value: 'kp', child: Text('Экспорт KeePass XML')),
+                if (p.savedActive)
+                  const PopupMenuItem(
+                      value: 'forget', child: Text('Забыть сохранённый пароль')),
+                const PopupMenuItem(value: 'lock', child: Text('Заблокировать')),
               ],
             ),
           ]),
@@ -398,7 +496,16 @@ class _PassPageState extends State<PassPage> {
             children: [
               chip('\u0000all', 'Все'),
               chip('\u0000fav', '★ Избранное'),
-              for (final f in folders) chip(f, f),
+              chip('\u0000none', 'Без папки'),
+              for (final f in folders) chip(f, f, folder: true),
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: ActionChip(
+                  avatar: const Icon(Icons.create_new_folder_outlined, size: 18),
+                  label: const Text('Папка'),
+                  onPressed: _newFolder,
+                ),
+              ),
             ],
           ),
         ),

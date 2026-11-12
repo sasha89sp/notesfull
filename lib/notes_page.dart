@@ -29,6 +29,7 @@ class NotesList extends StatefulWidget {
 class _NotesListState extends State<NotesList> {
   String _q = '';
   String _seg = 'all'; // all | notes | tables
+  String _cur = ''; // текущая папка заметок
   final _search = TextEditingController();
 
   Store get s => widget.store;
@@ -60,6 +61,7 @@ class _NotesListState extends State<NotesList> {
   void create() {
     final f = widget.filter;
     final n = Note.create(s.author, s.profileId, f == 'family' ? 'family' : 'personal');
+    if (!widget.home) n.folder = _cur;
     s.notes.add(n);
     _open(n);
   }
@@ -86,11 +88,182 @@ class _NotesListState extends State<NotesList> {
     }
   }
 
+  // ------------------------------------------------------------ папки
+
+  Future<String?> _askName(String title, [String initial = '']) async {
+    final c = TextEditingController(text: initial);
+    final r = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+            controller: c,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Название')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Отмена')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, c.text.trim()),
+              child: const Text('Готово')),
+        ],
+      ),
+    );
+    c.dispose();
+    return (r == null || r.isEmpty) ? null : r;
+  }
+
+  List<MapEntry<NoteFolder, int>> _flat(String parent, int depth, String? exclude) {
+    final out = <MapEntry<NoteFolder, int>>[];
+    for (final f in s.childFolders(parent)) {
+      if (f.id == exclude) continue;
+      out.add(MapEntry(f, depth));
+      out.addAll(_flat(f.id, depth + 1, exclude));
+    }
+    return out;
+  }
+
+  /// Выбор папки. Возвращает id, '' — корень, null — отмена.
+  Future<String?> _pickFolder({String? exclude}) {
+    final flat = _flat('', 0, exclude);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Переместить в папку'),
+        children: [
+          ListTile(
+            leading: const Icon(Icons.home_outlined),
+            title: const Text('Без папки (корень)'),
+            onTap: () => Navigator.pop(ctx, ''),
+          ),
+          for (final e in flat)
+            Padding(
+              padding: EdgeInsets.only(left: 16.0 * e.value),
+              child: ListTile(
+                leading: const Icon(Icons.folder_outlined),
+                title: Text(e.key.name),
+                onTap: () => Navigator.pop(ctx, e.key.id),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _newFolder() async {
+    final n = await _askName('Новая папка');
+    if (n != null) s.addFolder(n, _cur);
+  }
+
+  Future<void> _folderMenu(NoteFolder f) async {
+    final act = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Переименовать'),
+              onTap: () => Navigator.pop(ctx, 'ren')),
+          ListTile(
+              leading: const Icon(Icons.drive_file_move_outlined),
+              title: const Text('Переместить'),
+              onTap: () => Navigator.pop(ctx, 'mv')),
+          ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Удалить папку (содержимое сохранится)'),
+              onTap: () => Navigator.pop(ctx, 'del')),
+        ]),
+      ),
+    );
+    if (act == 'ren') {
+      final n = await _askName('Переименовать папку', f.name);
+      if (n != null) s.renameFolder(f, n);
+    } else if (act == 'mv') {
+      final to = await _pickFolder(exclude: f.id);
+      if (to != null) s.moveFolder(f, to);
+    } else if (act == 'del') {
+      s.deleteFolder(f);
+    }
+  }
+
+  Future<void> _noteMenu(Note n) async {
+    final act = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+              leading: const Icon(Icons.drive_file_move_outlined),
+              title: const Text('Переместить в папку'),
+              onTap: () => Navigator.pop(ctx, 'mv')),
+          ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Удалить'),
+              onTap: () => Navigator.pop(ctx, 'del')),
+        ]),
+      ),
+    );
+    if (act == 'mv') {
+      final to = await _pickFolder();
+      if (to != null) s.moveNote(n, to);
+    } else if (act == 'del') {
+      await _confirmDelete(n);
+    }
+  }
+
+  Widget _folderBar() {
+    final subs = s.childFolders(_cur);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        if (_cur.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.arrow_back),
+            tooltip: 'Выше',
+            onPressed: () =>
+                setState(() => _cur = s.folderById(_cur)?.parent ?? ''),
+          ),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(left: _cur.isEmpty ? 4 : 0),
+            child: Text(_cur.isEmpty ? 'Папки' : s.folderPath(_cur),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Pal.secondary(context))),
+          ),
+        ),
+        IconButton(
+          tooltip: 'Новая папка',
+          icon: const Icon(Icons.create_new_folder_outlined),
+          onPressed: _newFolder,
+        ),
+      ]),
+      for (final f in subs)
+        AppCard(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          onTap: () => setState(() => _cur = f.id),
+          onLongPress: () => _folderMenu(f),
+          child: Row(children: [
+            Icon(Icons.folder_outlined,
+                color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+                child: Text(f.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600))),
+            Text('${s.notesIn(f.id)}',
+                style: TextStyle(color: Pal.secondary(context))),
+            Icon(Icons.chevron_right, color: Pal.secondary(context)),
+          ]),
+        ),
+    ]);
+  }
+
   Widget _card(Note n) {
     final prev = n.preview(120);
     return AppCard(
       onTap: () => _open(n),
-      onLongPress: () => _confirmDelete(n),
+      onLongPress: () => _noteMenu(n),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -188,7 +361,17 @@ class _NotesListState extends State<NotesList> {
     return AnimatedBuilder(
       animation: s,
       builder: (context, _) {
+        if (_cur.isNotEmpty && s.folderById(_cur) == null) _cur = '';
+        final foldersMode = !widget.home && _q.isEmpty && widget.tag == null;
         var list = s.notes.where((n) => !n.deleted).toList();
+        if (foldersMode) {
+          list = list.where((n) {
+            final f = n.folder.isNotEmpty && s.folderById(n.folder) != null
+                ? n.folder
+                : '';
+            return f == _cur;
+          }).toList();
+        }
         switch (widget.filter) {
           case 'personal':
             list = list.where((n) => n.vault == 'personal').toList();
@@ -223,6 +406,7 @@ class _NotesListState extends State<NotesList> {
 
         final items = <Widget>[];
         if (widget.home) items.add(_upcoming());
+        if (foldersMode) items.add(_folderBar());
         String? lastG;
         for (final n in list) {
           final g = _group(n.updatedAt);
@@ -243,7 +427,7 @@ class _NotesListState extends State<NotesList> {
           items.add(Padding(
             padding: const EdgeInsets.only(top: 60),
             child: Center(
-              child: Text('Заметок пока нет',
+              child: Text(foldersMode && _cur.isNotEmpty ? 'В этой папке пусто' : 'Заметок пока нет',
                   style: TextStyle(color: Pal.secondary(context), fontSize: 17)),
             ),
           ));

@@ -22,7 +22,7 @@ class Notifier {
 
   Future<void> init(Store s) async {
     _store = s;
-    s.onEventsChanged = reschedule;
+    s.onEventsChanged = _schedule;
     if (Platform.isAndroid) {
       tzdata.initializeTimeZones();
       await _fln.initialize(const InitializationSettings(
@@ -60,11 +60,20 @@ class Notifier {
     _last = now;
   }
 
+  Timer? _deb;
+  String _sig = '';
+
+  /// Перепланирование не чаще раза в 2 секунды и только если что-то изменилось:
+  /// частые вызовы вешали телефон после синхронизации календаря.
+  void _schedule() {
+    _deb?.cancel();
+    _deb = Timer(const Duration(seconds: 2), reschedule);
+  }
+
   Future<void> reschedule() async {
     final s = _store;
     if (s == null || !Platform.isAndroid || !_ready) return;
     try {
-      await _fln.cancelAll();
       final now = DateTime.now();
       final list = s.events.where((e) {
         if (e.deleted || e.done) return false;
@@ -72,8 +81,15 @@ class Notifier {
         return a != null && a.isAfter(now);
       }).toList()
         ..sort((a, b) => a.alarm!.compareTo(b.alarm!));
+      final top = list.take(60).toList();
+      final sig = top
+          .map((e) => '${e.id}:${e.alarm!.millisecondsSinceEpoch}:${e.title}')
+          .join(';');
+      if (sig == _sig) return;
+      _sig = sig;
+      await _fln.cancelAll();
       var id = 1;
-      for (final e in list.take(300)) {
+      for (final e in top) {
         final when = tz.TZDateTime.from(e.alarm!, tz.UTC);
         final title = e.title.isEmpty ? 'Без названия' : e.title;
         final body = e.isTask

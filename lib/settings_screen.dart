@@ -1,9 +1,16 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:android_intent_plus/android_intent.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'applog.dart';
 import 'autofill.dart';
+import 'backup.dart';
+import 'diag_screens.dart';
 import 'family.dart';
 import 'google.dart';
+import 'ics.dart';
 import 'local_tx.dart';
 import 'models.dart';
 import 'store.dart';
@@ -18,7 +25,12 @@ const List<int> kProfileColors = [
 class SettingsScreen extends StatefulWidget {
   final Store store;
   final void Function(String theme) onTheme;
-  const SettingsScreen({super.key, required this.store, required this.onTheme});
+  final Future<void> Function(bool picker) onLogout;
+  const SettingsScreen(
+      {super.key,
+      required this.store,
+      required this.onTheme,
+      required this.onLogout});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -29,6 +41,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late Settings st;
   bool bioAvail = false;
   String gStatus = '';
+  Timer? _autoTimer;
+  String _syncSig = '';
 
   Store get s => widget.store;
 
@@ -49,6 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'gSecret': TextEditingController(text: st.gSecret),
       'lock': TextEditingController(text: st.autoLock.toString()),
     };
+    _syncSig = '${st.url}|${st.user}|${st.pass}';
     s.bioAvailable().then((v) {
       if (mounted) setState(() => bioAvail = v);
     });
@@ -56,6 +71,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    // несохранённые правки записываем сразу
+    if (_autoTimer?.isActive ?? false) {
+      _autoTimer!.cancel();
+      _autoNow();
+    }
     for (final x in c.values) {
       x.dispose();
     }
@@ -77,17 +97,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     st.autoLock = l.clamp(15, 3600).toInt();
   }
 
-  Future<void> _save({bool sync = false}) async {
+  /// Настройки сохраняются сами, кнопка «Сохранить» не нужна.
+  void _auto() {
+    _autoTimer?.cancel();
+    _autoTimer = Timer(const Duration(milliseconds: 700), _autoNow);
+  }
+
+  Future<void> _autoNow() async {
+    final oldName = st.author;
     _apply();
     await s.saveSettings();
-    if (!mounted) return;
+    if (st.author != oldName) await s.renameCurrent(st.author);
+    final sig = '${st.url}|${st.user}|${st.pass}';
+    final changed = sig != _syncSig;
+    _syncSig = sig;
     s.refresh();
-    if (sync) {
-      s.syncAll();
-      toast(context, 'Синхронизация запущена');
-    } else {
-      toast(context, 'Сохранено');
-    }
+    // ввели или изменили данные WebDAV: синхронизация запускается автоматически
+    if (changed && st.syncConfigured) s.syncAll();
   }
 
   Widget _field(String key, String label,
@@ -98,6 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         controller: c[key],
         obscureText: obscure,
         keyboardType: type,
+        onChanged: (_) => _auto(),
         decoration: InputDecoration(labelText: label, hintText: hint),
       ),
     );
@@ -116,7 +143,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               DropdownMenuItem(value: o.key, child: Text(o.value)),
           ],
           onChanged: (v) {
-            if (v != null) setState(() => set(v));
+            if (v != null) {
+              setState(() => set(v));
+              _auto();
+            }
           },
         ),
       ]),
@@ -187,7 +217,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => gStatus = 'Откроется браузер для входа в Google…');
     try {
       await GoogleCal.authorize(s);
-      setState(() => gStatus = 'Подключено');
+      if (mounted) setState(() => gStatus = 'Подключено');
       s.syncAll();
     } catch (e) {
       setState(() => gStatus = '$e');
@@ -204,6 +234,135 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<bool> _ask(String title, String text, String ok) async {
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(text),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Отмена')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true), child: Text(ok)),
+        ],
+      ),
+    );
+    return r == true;
+  }
+
+  Future<void> _davLogout() async {
+    if (!await _ask('Выйти из WebDAV?',
+        'Приложение отключится от облака. Локальные данные останутся на устройстве.', 'Выйти')) {
+      return;
+    }
+    s.cancelSync();
+    st.user = '';
+    st.pass = '';
+    c['user']!.text = '';
+    c['pass']!.text = '';
+    _syncSig = '${st.url}||';
+    await s.saveSettings();
+    s.refresh();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _googleLogout() async {
+    if (!await _ask('Выйти из Google Календаря?',
+        'Аккаунт будет отключён. Локальные события останутся.', 'Выйти')) {
+      return;
+    }
+    await GoogleCal.disconnect(s);
+    if (mounted) setState(() => gStatus = 'Отключено');
+  }
+
+  Future<void> _backup() async {
+    try {
+      final bytes = await Backup.create(s);
+      final d = DateTime.now();
+      final name = 'mysecure_backup_${d.year}${two(d.month)}${two(d.day)}.zip';
+      if (await saveBytes(name, bytes) && mounted) toast(context, 'Бэкап сохранён');
+    } catch (e, stk) {
+      AppLog.I.e('backup', '$e', stk);
+      if (mounted) toast(context, 'Ошибка бэкапа: $e');
+    }
+  }
+
+  Future<void> _restore() async {
+    final r = await FilePicker.platform
+        .pickFiles(type: FileType.custom, allowedExtensions: ['zip'], withData: true);
+    if (r == null || r.files.isEmpty || r.files.first.bytes == null) return;
+    final bytes = r.files.first.bytes!;
+    if (!Backup.isBackup(bytes)) {
+      if (mounted) toast(context, 'Это не бэкап приложения');
+      return;
+    }
+    if (!mounted) return;
+    if (!await _ask('Восстановить из бэкапа?',
+        'Данные текущего профиля будут заменены. После восстановления войдите с паролем, '
+            'под которым делался бэкап.',
+        'Восстановить')) {
+      return;
+    }
+    try {
+      await Backup.restore(s, bytes);
+      await widget.onLogout(false);
+    } catch (e, stk) {
+      AppLog.I.e('backup', '$e', stk);
+      if (mounted) toast(context, 'Ошибка восстановления: $e');
+    }
+  }
+
+  Future<void> _jexImport() async {
+    final r = await FilePicker.platform
+        .pickFiles(type: FileType.custom, allowedExtensions: ['jex'], withData: true);
+    if (r == null || r.files.isEmpty || r.files.first.bytes == null) return;
+    try {
+      final msg = await Jex.importInto(s, r.files.first.bytes!);
+      if (mounted) toast(context, 'Импорт Joplin: $msg');
+    } catch (e, stk) {
+      AppLog.I.e('jex', '$e', stk);
+      if (mounted) toast(context, 'Не удалось прочитать JEX: $e');
+    }
+  }
+
+  Future<void> _jexExport() async {
+    try {
+      final bytes = await Jex.exportFrom(s);
+      if (await saveBytes('mysecure_notes.jex', bytes) && mounted) {
+        toast(context, 'JEX сохранён');
+      }
+    } catch (e, stk) {
+      AppLog.I.e('jex', '$e', stk);
+      if (mounted) toast(context, 'Ошибка экспорта: $e');
+    }
+  }
+
+  Future<void> _icsImport() async {
+    final r = await FilePicker.platform
+        .pickFiles(type: FileType.custom, allowedExtensions: ['ics'], withData: true);
+    if (r == null || r.files.isEmpty || r.files.first.bytes == null) return;
+    final list = Ics.import(utf8.decode(r.files.first.bytes!, allowMalformed: true));
+    final have = {
+      for (final e in s.events)
+        if (!e.deleted) '${e.title}|${e.start}|${e.end}'
+    };
+    final fresh = list.where((e) => have.add('${e.title}|${e.start}|${e.end}')).toList();
+    s.events.addAll(fresh);
+    s.eventsChanged();
+    if (mounted) {
+      toast(context, 'Импортировано событий: ${fresh.length}'
+          '${list.length > fresh.length ? ' (повторы пропущены: ${list.length - fresh.length})' : ''}');
+    }
+  }
+
+  Future<void> _icsExport() async {
+    if (await saveBytes('calendar.ics', utf8.encode(Ics.export(s.events))) && mounted) {
+      toast(context, 'Файл сохранён');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -216,7 +375,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Wrap(spacing: 10, children: [
             for (final col in kProfileColors)
               GestureDetector(
-                onTap: () => setState(() => st.color = col),
+                onTap: () {
+                  setState(() => st.color = col);
+                  _auto();
+                },
                 child: Container(
                   width: 34,
                   height: 34,
@@ -232,6 +394,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
           const SizedBox(height: 6),
           Hint('Идентификатор профиля: ${st.profileId}'),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () async {
+                  if (await _ask('Выйти из профиля?',
+                      'Данные останутся на устройстве. Для входа понадобится пароль.', 'Выйти')) {
+                    await widget.onLogout(false);
+                  }
+                },
+                child: const Text('Выйти из профиля'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => widget.onLogout(true),
+                child: const Text('Сменить профиль'),
+              ),
+            ),
+          ]),
           _drop('Тема', st.theme,
               const {'system': 'Системная', 'light': 'Светлая', 'dark': 'Тёмная'},
               (v) {
@@ -246,6 +428,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _field('url', 'Адрес WebDAV'),
           _field('user', 'Логин'),
           _field('pass', 'Пароль приложения', obscure: true),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: st.syncConfigured ? _davLogout : null,
+                child: const Text('Выйти из WebDAV'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: AnimatedBuilder(
+                animation: s,
+                builder: (context, _) => OutlinedButton(
+                  onPressed: s.syncing ? s.cancelSync : null,
+                  child: const Text('Отмена'),
+                ),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 12),
           _drop('Вложения (фото, голос, файлы)', st.attMode,
               const {'wifi': 'Только Wi-Fi', 'any': 'Любая сеть', 'off': 'Не синхронизировать'},
               (v) => st.attMode = v),
@@ -332,6 +533,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(width: 12),
             if (st.googleConfigured)
               Text('подключено', style: TextStyle(color: Pal.success(context))),
+            const Spacer(),
+            if (st.googleConfigured)
+              OutlinedButton(
+                  onPressed: _googleLogout,
+                  child: const Text('Выйти из Google Календаря')),
           ]),
           if (gStatus.isNotEmpty) Hint(gStatus),
 
@@ -383,14 +589,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ],
 
-          const SizedBox(height: 20),
-          FilledButton(
-              onPressed: () => _save(sync: true),
-              child: const Text('Сохранить и синхронизировать')),
-          const SizedBox(height: 8),
+          const SectionTitle('История синхронизации'),
+          const Hint('Дата, статус, сколько данных отправлено и получено, куда и подробный журнал.'),
           OutlinedButton(
-              onPressed: () => _save(), child: const Text('Только сохранить')),
-          const SizedBox(height: 16),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => SyncHistoryScreen(store: s))),
+            child: const Text('Открыть историю'),
+          ),
+
+          const SectionTitle('Резервная копия и перенос'),
+          const Hint('Бэкап содержит все данные профиля, включая пароли и вложения, в зашифрованном виде. '
+              'Joplin: заметки, папки, теги и вложения (формат JEX). Календарь: файлы .ics.'),
+          Wrap(spacing: 10, runSpacing: 8, children: [
+            FilledButton(onPressed: _backup, child: const Text('Полный бэкап')),
+            OutlinedButton(onPressed: _restore, child: const Text('Восстановить')),
+            OutlinedButton(onPressed: _jexImport, child: const Text('Импорт из Joplin')),
+            OutlinedButton(onPressed: _jexExport, child: const Text('Экспорт в Joplin')),
+            OutlinedButton(onPressed: _icsImport, child: const Text('Импорт календаря')),
+            OutlinedButton(onPressed: _icsExport, child: const Text('Экспорт календаря')),
+          ]),
+          const Hint('Импорт и экспорт паролей (CSV и другие форматы) находятся во вкладке «Пароли», меню ⋮.'),
+
+          const SectionTitle('Отладка и диагностика'),
+          const Hint('Журнал ошибок, сбоев и зависаний с причинами; его можно сохранить файлом.'),
+          OutlinedButton(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => LogScreen(store: s))),
+            child: const Text('Открыть журнал'),
+          ),
+          const SizedBox(height: 8),
+          const Hint('Все изменения в настройках сохраняются автоматически.'),
+          const SizedBox(height: 8),
           AnimatedBuilder(
             animation: s,
             builder: (context, _) => Text(s.status,

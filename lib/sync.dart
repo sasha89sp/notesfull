@@ -9,6 +9,7 @@ import 'merge.dart';
 import 'models.dart';
 import 'pass_store.dart';
 import 'store.dart';
+import 'synchist.dart';
 
 class Dav {
   final String base;
@@ -101,18 +102,12 @@ class Dav {
   }
 }
 
-class _Res {
-  int up = 0;
-  int down = 0;
-  int conflicts = 0;
-}
-
 class SyncService {
   static const String root = '/MySecureApp';
   static const String personalDir = '$root/personal';
   static const String familyDir = '$root/FamilyShared';
 
-  static Future<String> run(Store s) async {
+  static Future<void> run(Store s, SyncStats r, CancelToken tok) async {
     final st = s.settings;
     final dav = Dav(st.url, st.user, st.pass);
     await dav.mkcol(root);
@@ -120,10 +115,11 @@ class SyncService {
     await FamilyKeys.ensureKeyPair(s);
     await _putProfile(dav, s);
     await FamilyKeys.fetchMine(dav, s);
-    final r = _Res();
+    tok.check();
 
     // 1. Заметки (высокий приоритет)
-    await _scope(dav, s, 'personal', personalDir, s.syncKey!, r);
+    await _scope(dav, s, 'personal', personalDir, s.syncKey!, r, tok);
+    tok.check();
 
     // 2. События календаря (личные)
     await _mergeBlob(
@@ -133,25 +129,71 @@ class SyncService {
       s.events.map((e) => e.toJson()).toList(),
       (list) {
         s.events = list.map(CalEvent.fromJson).toList();
-        r.down++;
       },
       r,
+      'events',
     );
+    tok.check();
 
-    var extra = '';
+    // 2б. Папки заметок
+    await _mergeBlob(
+      dav,
+      '$personalDir/folders.enc',
+      s.syncKey!,
+      s.folders.map((e) => e.toJson()).toList(),
+      (list) {
+        s.folders = list.map(NoteFolder.fromJson).toList();
+      },
+      r,
+      'folders',
+    );
+    tok.check();
+
     final fk = await s.familyKey();
     if (fk != null) {
-      await _scope(dav, s, 'family', familyDir, fk, r);
-      await _comments(dav, s, fk, r);
+      await _scope(dav, s, 'family', familyDir, fk, r, tok);
+      tok.check();
+      await _comments(dav, s, fk, r, tok);
     } else if (s.notes.any((n) => n.vault == 'family' && !n.deleted)) {
-      extra = ' (общие заметки пропущены: нет семейного ключа — попросите владельца выдать доступ)';
+      r.log.add('Общие заметки пропущены: нет семейного ключа, попросите владельца выдать доступ');
     }
+    tok.check();
 
     // 3. Вложения (низкий приоритет)
-    await _attachments(dav, s, fk, r);
+    await _attachments(dav, s, fk, r, tok);
+  }
 
-    final c = r.conflicts > 0 ? ', конфликтов: ${r.conflicts}' : '';
-    return '↑${r.up} ↓${r.down}$c$extra';
+  /// Проверка при подключении онлайн-профиля: есть ли в облаке данные и подходит ли пароль.
+  /// Возвращает ok | empty | wrong | error:<текст>
+  static Future<String> verifyJoin(
+      String url, String user, String pass, String pw) async {
+    try {
+      final dav = Dav(url, user, pass);
+      final sk = await Crypto.deriveFixed(pw, 'mysecure-personal-sync-v1');
+      Future<String?> tryDecrypt(Uint8List? b) async {
+        if (b == null) return null;
+        try {
+          await Crypto.decrypt(sk, b);
+          return 'ok';
+        } catch (_) {
+          return 'wrong';
+        }
+      }
+
+      final ev = await tryDecrypt(await dav.get('$personalDir/events.enc'));
+      if (ev != null) return ev;
+      final mb = await dav.get('$personalDir/manifest.json');
+      if (mb != null) {
+        final m = jsonDecode(utf8.decode(mb)) as Map<String, dynamic>;
+        if (m.isNotEmpty) {
+          final r = await tryDecrypt(await dav.get('$personalDir/${m.keys.first}.enc'));
+          if (r != null) return r;
+        }
+      }
+      return 'empty';
+    } catch (e) {
+      return 'error:$e';
+    }
   }
 
   // ---------------------------------------------------------------- профиль
@@ -188,7 +230,8 @@ class SyncService {
   // ---------------------------------------------------------------- заметки
 
   static Future<void> _scope(Dav dav, Store s, String vault, String dir,
-      SecretKey key, _Res r) async {
+      SecretKey key, SyncStats r, CancelToken tok) async {
+    final kind = vault == 'family' ? 'family' : 'notes';
     await dav.mkcol(dir);
 
     final manifest = <String, int>{};
@@ -198,9 +241,11 @@ class SyncService {
       m.forEach((k, v) => manifest[k] = (v as num).toInt());
     }
     var changed = false;
+    try {
 
     // скачиваем изменённое на сервере
     for (final e in manifest.entries.toList()) {
+      tok.check();
       final local = s.byId(e.key);
       if (local != null && local.vault != vault) continue;
       if (local != null && e.value <= local.syncedAt) continue;
@@ -216,14 +261,14 @@ class SyncService {
         remote.syncedAt = remote.updatedAt;
         remote.markSynced();
         s.notes.add(remote);
-        r.down++;
+        r.d(kind);
       } else if (local.updatedAt > local.syncedAt) {
         // Изменено и там, и тут: пробуем слить по блокам / строкам / ячейкам
         final merged = mergeNotes(local, remote);
         if (merged != null) {
           final idx = s.notes.indexOf(local);
           if (idx >= 0) s.notes[idx] = merged;
-          r.down++;
+          r.d(kind);
         } else {
           // правки пересеклись: серверную версию сохраняем копией
           remote.id = newId();
@@ -231,6 +276,7 @@ class SyncService {
           remote.syncedAt = 0;
           s.notes.add(remote);
           r.conflicts++;
+          r.log.add('Конфликт: «${remote.title}» сохранена копией');
         }
       } else {
         final idx = s.notes.indexOf(local);
@@ -238,12 +284,13 @@ class SyncService {
         remote.syncedAt = remote.updatedAt;
         remote.markSynced();
         if (idx >= 0) s.notes[idx] = remote;
-        r.down++;
+        r.d(kind);
       }
     }
 
     // загружаем локальные изменения
     for (final n in List<Note>.of(s.notes)) {
+      tok.check();
       if (n.vault != vault) continue;
       final inManifest = manifest.containsKey(n.id);
       if (inManifest && n.updatedAt <= n.syncedAt) continue;
@@ -255,13 +302,16 @@ class SyncService {
       manifest[n.id] = stamp;
       n.syncedAt = stamp;
       n.markSynced();
-      r.up++;
+      r.u(kind);
       changed = true;
     }
 
-    if (changed) {
-      await dav.putAtomic(
-          '$dir/manifest.json', utf8.encode(jsonEncode(manifest)));
+    } finally {
+      // манифест записываем и при отмене: уже загруженное не уйдёт повторно
+      if (changed) {
+        await dav.putAtomic(
+            '$dir/manifest.json', utf8.encode(jsonEncode(manifest)));
+      }
     }
   }
 
@@ -274,7 +324,8 @@ class SyncService {
     SecretKey key,
     List<Map<String, dynamic>> local,
     void Function(List<Map<String, dynamic>>) apply,
-    _Res r,
+    SyncStats r,
+    String kind,
   ) async {
     final bytes = await dav.get(path);
     final remote = <Map<String, dynamic>>[];
@@ -289,6 +340,7 @@ class SyncService {
     final merged = <String, Map<String, dynamic>>{};
     var localChanged = false;
     var remoteChanged = false;
+    var nUp = 0, nDown = 0;
 
     for (final e in remote) {
       merged[e['id'] as String] = e;
@@ -299,27 +351,36 @@ class SyncService {
       if (re == null) {
         merged[id] = e;
         remoteChanged = true;
+        nUp++;
       } else {
         final lu = (e['updatedAt'] as num).toInt();
         final ru = (re['updatedAt'] as num).toInt();
         if (lu > ru) {
           merged[id] = e;
           remoteChanged = true;
+          nUp++;
         } else if (ru > lu) {
           localChanged = true;
+          nDown++;
         }
       }
     }
     for (final id in rm.keys) {
-      if (!lm.containsKey(id)) localChanged = true;
+      if (!lm.containsKey(id)) {
+        localChanged = true;
+        nDown++;
+      }
     }
 
     final list = merged.values.toList();
-    if (localChanged) apply(list);
+    if (localChanged) {
+      apply(list);
+      r.d(kind, nDown);
+    }
     if (remoteChanged) {
       await dav.putAtomic(
           path, await Crypto.encrypt(key, utf8.encode(jsonEncode(list))));
-      r.up++;
+      r.u(kind, nUp);
     }
   }
 
@@ -330,7 +391,7 @@ class SyncService {
     final dav = Dav(st.url, st.user, st.pass);
     await dav.mkcol(root);
     await dav.mkcol(personalDir);
-    final r = _Res();
+    final r = SyncStats();
     await _mergeBlob(
       dav,
       '$personalDir/passwords.enc',
@@ -340,19 +401,29 @@ class SyncService {
         p.entries = list.map(PassEntry.fromJson).toList();
       },
       r,
+      'passwords',
     );
+    await s.addHistory(SyncRecord(
+      at: nowMs(),
+      status: 'ok',
+      targets: ['WebDAV (пароли)'],
+      up: r.up,
+      down: r.down,
+      log: r.log,
+    ));
   }
 
   // ---------------------------------------------------------------- комментарии
 
   static Future<void> _comments(
-      Dav dav, Store s, SecretKey fk, _Res r) async {
+      Dav dav, Store s, SecretKey fk, SyncStats r, CancelToken tok) async {
     final famNotes =
         s.notes.where((n) => n.vault == 'family' && !n.deleted).toList();
     if (famNotes.isEmpty) return;
     await dav.mkcol('$familyDir/comments');
 
     for (final n in famNotes) {
+      tok.check();
       final d = '$familyDir/comments/${n.id}';
       final names = await dav.list(d);
       final mine = s.comments.where((c) => c.noteId == n.id).toList();
@@ -386,7 +457,7 @@ class SyncService {
             c.delSynced = true;
           }
           s.comments.add(c);
-          r.down++;
+          r.d('comments');
         } else if (delMarks.contains(name)) {
           known.deleted = true;
           known.text = '';
@@ -399,14 +470,14 @@ class SyncService {
           await dav.put('$d/${c.file}',
               await Crypto.encrypt(fk, utf8.encode(jsonEncode(c.toJson()))));
           c.synced = true;
-          r.up++;
+          r.u('comments');
         }
         if (c.deleted && !c.delSynced && c.file.isNotEmpty) {
           final base = c.file.substring(0, c.file.length - '.enc'.length);
           await dav.put('$d/$base.del.enc',
               await Crypto.encrypt(fk, utf8.encode('deleted')));
           c.delSynced = true;
-          r.up++;
+          r.u('comments');
         }
       }
     }
@@ -425,13 +496,14 @@ class SyncService {
   }
 
   static Future<void> _attachments(
-      Dav dav, Store s, SecretKey? fk, _Res r) async {
+      Dav dav, Store s, SecretKey? fk, SyncStats r, CancelToken tok) async {
     final mode = s.settings.attMode;
     if (mode == 'off') return;
     if (mode == 'wifi' && !await _onWifi()) return;
 
     final done = s.settings.attDone;
     for (final n in List<Note>.of(s.notes)) {
+      tok.check();
       if (n.deleted) continue;
       final family = n.vault == 'family';
       final key = family ? fk : s.syncKey;
@@ -453,14 +525,14 @@ class SyncService {
           }
           await dav.putAtomic('$dir/$id.enc', await Crypto.encrypt(key, plain));
           done.add(tag);
-          r.up++;
+          r.u('attachments');
         } else {
           final bytes = await dav.get('$dir/$id.enc');
           if (bytes == null) continue;
           final plain = await Crypto.decrypt(key, bytes);
           await s.writeAttachment(id, plain);
           done.add(tag);
-          r.down++;
+          r.d('attachments');
         }
       }
     }

@@ -285,6 +285,41 @@ class Version {
       );
 }
 
+/// Папка заметок (поддерживается вложенность через parent).
+class NoteFolder {
+  String id;
+  String name;
+  String parent; // id родителя или пусто
+  int updatedAt;
+  bool deleted;
+  NoteFolder({
+    required this.id,
+    required this.name,
+    this.parent = '',
+    required this.updatedAt,
+    this.deleted = false,
+  });
+
+  factory NoteFolder.create(String name, String parent) =>
+      NoteFolder(id: newId(), name: name, parent: parent, updatedAt: nowMs());
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'parent': parent,
+        'updatedAt': updatedAt,
+        'deleted': deleted,
+      };
+
+  factory NoteFolder.fromJson(Map<String, dynamic> j) => NoteFolder(
+        id: j['id'] as String,
+        name: (j['name'] ?? '') as String,
+        parent: (j['parent'] ?? '') as String,
+        updatedAt: (j['updatedAt'] ?? 0) as int,
+        deleted: (j['deleted'] ?? false) as bool,
+      );
+}
+
 class Note {
   String id;
   String title;
@@ -298,6 +333,7 @@ class Note {
   bool deleted;
   bool favorite;
   List<String> tags;
+  String folder; // id папки заметок (пусто — корень)
   List<Block> blocks;
   List<Version> history;
   List<Block>? base; // последнее синхронизированное состояние (для слияния)
@@ -315,6 +351,7 @@ class Note {
     this.syncedAt = 0,
     this.deleted = false,
     this.favorite = false,
+    this.folder = '',
     List<String>? tags,
     List<Block>? blocks,
     List<Version>? history,
@@ -352,6 +389,7 @@ class Note {
         'deleted': deleted,
         'favorite': favorite,
         'tags': tags,
+        'folder': folder,
         'blocks': blocks.map((b) => b.toJson()).toList(),
         'history': withHistory ? history.map((v) => v.toJson()).toList() : [],
         'base': withHistory ? base?.map((b) => b.toJson()).toList() : null,
@@ -376,6 +414,7 @@ class Note {
         deleted: (j['deleted'] ?? false) as bool,
         favorite: (j['favorite'] ?? false) as bool,
         tags: ((j['tags'] ?? []) as List).map((e) => e.toString()).toList(),
+        folder: (j['folder'] ?? '') as String,
         blocks: ((j['blocks'] ?? []) as List)
             .map((e) => Block.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
@@ -582,6 +621,7 @@ class PassEntry {
   String totp;
   bool favorite;
   bool deleted;
+  bool isFolder; // служебная запись: пустая папка
   int updatedAt;
   List<Map<String, dynamic>> history; // {'p': пароль, 'at': время}
 
@@ -596,6 +636,7 @@ class PassEntry {
     this.totp = '',
     this.favorite = false,
     this.deleted = false,
+    this.isFolder = false,
     required this.updatedAt,
     List<Map<String, dynamic>>? history,
   }) : history = history ?? [];
@@ -613,6 +654,7 @@ class PassEntry {
         'totp': totp,
         'favorite': favorite,
         'deleted': deleted,
+        'isFolder': isFolder,
         'updatedAt': updatedAt,
         'history': history,
       };
@@ -628,6 +670,7 @@ class PassEntry {
         totp: (j['totp'] ?? '') as String,
         favorite: (j['favorite'] ?? false) as bool,
         deleted: (j['deleted'] ?? false) as bool,
+        isFolder: (j['isFolder'] ?? false) as bool,
         updatedAt: (j['updatedAt'] ?? 0) as int,
         history: ((j['history'] ?? []) as List)
             .map((e) => Map<String, dynamic>.from(e as Map))
@@ -664,6 +707,7 @@ class Settings {
   int autoLock; // секунды (менеджер паролей)
   String theme; // system | light | dark
   List<String> attDone;
+  bool verboseLog;
 
   Settings({
     this.url = 'https://webdav.cloud.mail.ru',
@@ -692,6 +736,7 @@ class Settings {
     this.autoLock = 90,
     this.theme = 'system',
     List<String>? attDone,
+    this.verboseLog = false,
   }) : attDone = attDone ?? [];
 
   Map<String, dynamic> toJson() => {
@@ -721,6 +766,7 @@ class Settings {
         'autoLock': autoLock,
         'theme': theme,
         'attDone': attDone,
+        'verboseLog': verboseLog,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) {
@@ -752,6 +798,7 @@ class Settings {
       autoLock: (j['autoLock'] ?? 90) as int,
       theme: (j['theme'] ?? 'system') as String,
       attDone: ((j['attDone'] ?? []) as List).map((e) => e.toString()).toList(),
+      verboseLog: (j['verboseLog'] ?? false) as bool,
     );
   }
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mysecure_notes/backup.dart';
 import 'package:mysecure_notes/crypto.dart';
 import 'package:mysecure_notes/family.dart';
 import 'package:mysecure_notes/formula.dart';
@@ -163,5 +164,38 @@ void main() {
     b.kpPriv = base64Encode(await kp2.extractPrivateKeyBytes());
     b.kpPub = base64Encode((await kp2.extractPublicKey()).bytes);
     await expectLater(FamilyKeys.unwrap(w, b), throwsA(anything));
+  });
+
+  test('Joplin JEX: экспорт и повторный разбор', () {
+    final f1 = NoteFolder(id: 'f1', name: 'Работа', updatedAt: 1);
+    final f2 = NoteFolder(id: 'f2', name: 'Идеи', parent: 'f1', updatedAt: 1);
+    final n = Note.create('Я', 'me', 'personal')
+      ..title = 'План'
+      ..folder = 'f2'
+      ..tags = ['важное']
+      ..blocks = [
+        Block(type: 'text', content: 'Первая строка\nвторая'),
+        Block(type: 'checklist', items: [CheckItem('молоко', true), CheckItem('хлеб')]),
+        Block(type: 'file', meta: {'att': 'a1', 'name': 'doc.txt'}),
+      ];
+    final tar = Jex.export([f1, f2], [n], {'a1': utf8.encode('hello')});
+    final p = Jex.parse(tar);
+    expect(p.folders.length, 2);
+    final child = p.folders.firstWhere((f) => f.title == 'Идеи');
+    final parent = p.folders.firstWhere((f) => f.title == 'Работа');
+    expect(child.parent, parent.id);
+    expect(p.notes.length, 1);
+    final jn = p.notes.first;
+    expect(jn.title, 'План');
+    expect(jn.parent, child.id);
+    expect(jn.tags, ['важное']);
+    expect(jn.body.contains('- [x] молоко'), true);
+    expect(p.resources.length, 1);
+    expect(utf8.decode(p.resources.values.first.bytes), 'hello');
+
+    final blocks = Jex.toBlocks(jn.body, (rid) =>
+        p.resources.containsKey(rid) ? Block(type: 'file', meta: {'att': 'x'}) : null);
+    expect(blocks.any((b) => b.type == 'checklist' && b.items.length == 2), true);
+    expect(blocks.any((b) => b.type == 'file'), true);
   });
 }

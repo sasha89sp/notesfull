@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'crypto.dart';
 import 'models.dart';
 import 'store.dart';
@@ -23,6 +24,8 @@ class PassStore extends ChangeNotifier {
   Timer? _lockTimer;
   Timer? _syncTimer;
   Future<void> _chain = Future.value();
+  final FlutterSecureStorage _ss = const FlutterSecureStorage();
+  int _savedUntil = 0; // 0 — не сохранён, -1 — до выхода из профиля, иначе время (мс)
 
   bool get unlocked => key != null;
 
@@ -81,6 +84,53 @@ class PassStore extends ChangeNotifier {
     return true;
   }
 
+  // ---------------------------------------------- «Сохранить пароль» на срок
+
+  String get _kpw => 'pp_${store.curId}';
+  String get _kexp => 'ppx_${store.curId}';
+
+  bool get savedActive =>
+      _savedUntil == -1 || (_savedUntil > 0 && nowMs() < _savedUntil);
+
+  /// minutes: -1 — до выхода из профиля
+  Future<void> rememberPassword(String pw, int minutes) async {
+    final until = minutes < 0 ? -1 : nowMs() + minutes * 60000;
+    try {
+      await _ss.write(key: _kpw, value: pw);
+      await _ss.write(key: _kexp, value: until.toString());
+      _savedUntil = until;
+    } catch (_) {}
+  }
+
+  /// Сбросить сохранение вручную (забыть пароль раньше срока).
+  Future<void> forgetSaved() async {
+    _savedUntil = 0;
+    try {
+      await _ss.delete(key: _kpw);
+      await _ss.delete(key: _kexp);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// Если срок сохранения не истёк, открываем хранилище без запроса пароля.
+  Future<bool> tryAutoUnlock() async {
+    if (unlocked || !exists) return unlocked;
+    try {
+      final exp = int.tryParse(await _ss.read(key: _kexp) ?? '') ?? 0;
+      if (exp == 0) return false;
+      if (exp != -1 && nowMs() >= exp) {
+        await forgetSaved();
+        return false;
+      }
+      final pw = await _ss.read(key: _kpw);
+      if (pw == null) return false;
+      _savedUntil = exp;
+      return await unlock(pw);
+    } catch (_) {
+      return false;
+    }
+  }
+
   void lock() {
     _lockTimer?.cancel();
     key = null;
@@ -93,7 +143,14 @@ class PassStore extends ChangeNotifier {
   void touch() {
     _lockTimer?.cancel();
     if (!unlocked) return;
-    _lockTimer = Timer(Duration(seconds: store.settings.autoLock), lock);
+    _lockTimer = Timer(Duration(seconds: store.settings.autoLock), () {
+      // пока действует сохранённый пароль, повторно его не спрашиваем
+      if (savedActive) {
+        touch();
+      } else {
+        lock();
+      }
+    });
   }
 
   Future<void> save() {
@@ -132,5 +189,51 @@ class PassStore extends ChangeNotifier {
     });
   }
 
-  List<PassEntry> get visible => entries.where((e) => !e.deleted).toList();
+  List<PassEntry> get visible =>
+      entries.where((e) => !e.deleted && !e.isFolder).toList();
+
+  /// Все папки: из записей и из служебных записей пустых папок.
+  List<String> get folderNames {
+    final set = <String>{};
+    for (final e in entries) {
+      if (!e.deleted && e.folder.isNotEmpty) set.add(e.folder);
+    }
+    final l = set.toList()..sort();
+    return l;
+  }
+
+  void createFolder(String name) {
+    final n = name.trim();
+    if (n.isEmpty || folderNames.contains(n)) return;
+    entries.add(PassEntry.create()
+      ..isFolder = true
+      ..folder = n);
+    changed();
+  }
+
+  void renameFolder(String from, String to) {
+    final n = to.trim();
+    if (n.isEmpty || n == from) return;
+    for (final e in entries) {
+      if (e.folder == from && !e.deleted) {
+        e.folder = n;
+        e.updatedAt = nowMs();
+      }
+    }
+    changed();
+  }
+
+  /// Удаление папки: записи не теряются, а переходят в «Без папки».
+  void deleteFolder(String name) {
+    for (final e in entries) {
+      if (e.folder != name || e.deleted) continue;
+      if (e.isFolder) {
+        e.deleted = true;
+      } else {
+        e.folder = '';
+      }
+      e.updatedAt = nowMs();
+    }
+    changed();
+  }
 }
