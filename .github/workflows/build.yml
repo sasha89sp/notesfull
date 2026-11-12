@@ -83,6 +83,9 @@ jobs:
         if: matrix.variant == 'autofill'
         run: python3 ci/patch_autofill.py
 
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
       - run: flutter pub get
       - run: flutter build apk --release
 
