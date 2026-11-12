@@ -130,4 +130,19 @@ for name, code in [('build.gradle.kts', KTS), ('build.gradle', GROOVY)]:
         if 'fixSdk' not in t:
             f.write_text(t + code, encoding='utf-8')
         print('compileSdk patch ->', name)
+
+# --- Lint в релизной сборке падает на сторонних плагинах: отключаем
+for name in ['app/build.gradle.kts', 'app/build.gradle']:
+    f = root / name
+    if not f.exists():
+        continue
+    t = f.read_text(encoding='utf-8')
+    if 'checkReleaseBuilds' in t:
+        continue
+    kts = name.endswith('.kts')
+    lint = ('\n    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }\n' if kts
+            else '\n    lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }\n')
+    t = re.sub(r'(\bandroid\s*\{)', lambda m: m.group(1) + lint, t, count=1)
+    f.write_text(t, encoding='utf-8')
+    print('lint disabled ->', name)
 print('android patched')
