@@ -1,1 +1,217 @@
+name: Build
 
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate platform folders
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bak"
+          cp -r lib "$RUNNER_TEMP/bak/lib"
+          cp -r assets "$RUNNER_TEMP/bak/assets"
+          cp -r tests "$RUNNER_TEMP/bak/tests"
+          cp pubspec.yaml "$RUNNER_TEMP/bak/pubspec.yaml"
+          flutter create --platforms=android --org com.mysecure --project-name mysecure_notes .
+          rm -rf lib test assets
+          cp -r "$RUNNER_TEMP/bak/lib" lib
+          cp -r "$RUNNER_TEMP/bak/assets" assets
+          cp -r "$RUNNER_TEMP/bak/tests" test
+          cp "$RUNNER_TEMP/bak/pubspec.yaml" pubspec.yaml
+
+      - run: flutter pub get
+      - run: flutter test
+
+  android:
+    name: android (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.variant != 'base' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [base, whisper, autofill]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate platform folders
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bak"
+          cp -r lib "$RUNNER_TEMP/bak/lib"
+          cp -r assets "$RUNNER_TEMP/bak/assets"
+          cp pubspec.yaml "$RUNNER_TEMP/bak/pubspec.yaml"
+          flutter create --platforms=android --org com.mysecure --project-name mysecure_notes .
+          rm -rf lib test assets
+          cp -r "$RUNNER_TEMP/bak/lib" lib
+          cp -r "$RUNNER_TEMP/bak/assets" assets
+          cp "$RUNNER_TEMP/bak/pubspec.yaml" pubspec.yaml
+
+      - name: Enable local Whisper
+        if: matrix.variant == 'whisper'
+        shell: bash
+        run: |
+          cp variants/whisper/local_tx.dart lib/local_tx.dart
+          sed -i 's/^  archive: .*/&\n  whisper_ggml: ^2.9.0/' pubspec.yaml
+
+      - name: Patch Android project
+        run: python3 ci/patch_android.py
+
+      - name: Add Android autofill service
+        if: matrix.variant == 'autofill'
+        run: python3 ci/patch_autofill.py
+
+      - run: flutter pub get
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ matrix.variant }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  windows:
+    name: windows (${{ matrix.variant }})
+    runs-on: windows-latest
+    continue-on-error: ${{ matrix.variant == 'whisper' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [base, whisper]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate platform folders
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bak"
+          cp -r lib "$RUNNER_TEMP/bak/lib"
+          cp -r assets "$RUNNER_TEMP/bak/assets"
+          cp pubspec.yaml "$RUNNER_TEMP/bak/pubspec.yaml"
+          flutter create --platforms=windows --org com.mysecure --project-name mysecure_notes .
+          rm -rf lib test assets
+          cp -r "$RUNNER_TEMP/bak/lib" lib
+          cp -r "$RUNNER_TEMP/bak/assets" assets
+          cp "$RUNNER_TEMP/bak/pubspec.yaml" pubspec.yaml
+
+      - name: Enable local Whisper
+        if: matrix.variant == 'whisper'
+        shell: bash
+        run: |
+          cp variants/whisper/local_tx.dart lib/local_tx.dart
+          sed -i 's/^  archive: .*/&\n  whisper_ggml: ^2.9.0/' pubspec.yaml
+
+      - run: flutter pub get
+      - run: flutter build windows --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-app-${{ matrix.variant }}
+          path: build/windows/x64/runner/Release
+
+  linux:
+    name: linux (experimental)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
+            libsecret-1-dev libjsoncpp-dev libayatana-appindicator3-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libasound2-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate platform folders
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bak"
+          cp -r lib "$RUNNER_TEMP/bak/lib"
+          cp -r assets "$RUNNER_TEMP/bak/assets"
+          cp pubspec.yaml "$RUNNER_TEMP/bak/pubspec.yaml"
+          flutter create --platforms=linux --org com.mysecure --project-name mysecure_notes .
+          rm -rf lib test assets
+          cp -r "$RUNNER_TEMP/bak/lib" lib
+          cp -r "$RUNNER_TEMP/bak/assets" assets
+          cp "$RUNNER_TEMP/bak/pubspec.yaml" pubspec.yaml
+
+      - run: flutter pub get
+      - run: flutter build linux --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-app
+          path: build/linux/x64/release/bundle
+
+  macos:
+    name: macos (experimental)
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate platform folders
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bak"
+          cp -r lib "$RUNNER_TEMP/bak/lib"
+          cp -r assets "$RUNNER_TEMP/bak/assets"
+          cp pubspec.yaml "$RUNNER_TEMP/bak/pubspec.yaml"
+          flutter create --platforms=macos --org com.mysecure --project-name mysecure_notes .
+          rm -rf lib test assets
+          cp -r "$RUNNER_TEMP/bak/lib" lib
+          cp -r "$RUNNER_TEMP/bak/assets" assets
+          cp "$RUNNER_TEMP/bak/pubspec.yaml" pubspec.yaml
+
+      - name: Patch macOS entitlements
+        run: python3 ci/patch_macos.py
+
+      - run: flutter pub get
+      - run: flutter build macos --release
+
+      - name: Zip app
+        run: |
+          cd build/macos/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent mysecure_notes.app "$GITHUB_WORKSPACE/mysecure_notes_macos.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: mysecure_notes_macos.zip
