@@ -36,13 +36,8 @@ jobs:
       - run: flutter test
 
   android:
-    name: android (${{ matrix.variant }})
+    name: android
     runs-on: ubuntu-latest
-    continue-on-error: ${{ matrix.variant != 'base' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [base, whisper, autofill]
     steps:
       - uses: actions/checkout@v4
 
@@ -69,39 +64,41 @@ jobs:
           cp -r "$RUNNER_TEMP/bak/assets" assets
           cp "$RUNNER_TEMP/bak/pubspec.yaml" pubspec.yaml
 
-      - name: Enable local Whisper
-        if: matrix.variant == 'whisper'
-        shell: bash
+      - name: Patch Android project (permissions, icon, autofill, backup module)
         run: |
-          cp variants/whisper/local_tx.dart lib/local_tx.dart
-          sed -i 's/^  archive: .*/&\n  whisper_ggml: ^2.9.0/' pubspec.yaml
-
-      - name: Patch Android project
-        run: python3 ci/patch_android.py
-
-      - name: Add Android autofill service
-        if: matrix.variant == 'autofill'
-        run: python3 ci/patch_autofill.py
+          python3 ci/patch_android.py
+          python3 ci/patch_autofill.py
+          python3 ci/patch_backup.py
 
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
-      - run: flutter pub get
-      - run: flutter build apk --release
+      - name: Build APK (full; falls back to build without local Whisper)
+        shell: bash
+        run: |
+          cp pubspec.yaml "$RUNNER_TEMP/pubspec.plain"
+          cp lib/local_tx.dart "$RUNNER_TEMP/local_tx.plain"
+          cp variants/whisper/local_tx.dart lib/local_tx.dart
+          sed -i 's/^  archive: .*/&\n  whisper_ggml: ^2.9.0/' pubspec.yaml
+          if flutter pub get && flutter build apk --release; then
+            echo "Built with local Whisper"
+          else
+            echo "::warning::Build with local Whisper failed, rebuilding without it"
+            cp "$RUNNER_TEMP/pubspec.plain" pubspec.yaml
+            cp "$RUNNER_TEMP/local_tx.plain" lib/local_tx.dart
+            flutter clean
+            flutter pub get
+            flutter build apk --release
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: android-apk-${{ matrix.variant }}
+          name: ASRbox-android
           path: build/app/outputs/flutter-apk/app-release.apk
 
   windows:
-    name: windows (${{ matrix.variant }})
+    name: windows
     runs-on: windows-latest
-    continue-on-error: ${{ matrix.variant == 'whisper' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [base, whisper]
     steps:
       - uses: actions/checkout@v4
 
@@ -123,26 +120,33 @@ jobs:
           cp -r "$RUNNER_TEMP/bak/assets" assets
           cp "$RUNNER_TEMP/bak/pubspec.yaml" pubspec.yaml
 
-      - name: Enable local Whisper
-        if: matrix.variant == 'whisper'
-        shell: bash
-        run: |
-          cp variants/whisper/local_tx.dart lib/local_tx.dart
-          sed -i 's/^  archive: .*/&\n  whisper_ggml: ^2.9.0/' pubspec.yaml
-
       - name: Name and icon ASRbox
         shell: bash
         run: python3 ci/patch_windows.py
 
-      - run: flutter pub get
-      - name: Build Windows
-        run: flutter build windows --release
+      - name: Build Windows (full; falls back to build without local Whisper)
+        shell: bash
         env:
           CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+        run: |
+          cp pubspec.yaml "$RUNNER_TEMP/pubspec.plain"
+          cp lib/local_tx.dart "$RUNNER_TEMP/local_tx.plain"
+          cp variants/whisper/local_tx.dart lib/local_tx.dart
+          sed -i 's/^  archive: .*/&\n  whisper_ggml: ^2.9.0/' pubspec.yaml
+          if flutter pub get && flutter build windows --release; then
+            echo "Built with local Whisper"
+          else
+            echo "::warning::Build with local Whisper failed, rebuilding without it"
+            cp "$RUNNER_TEMP/pubspec.plain" pubspec.yaml
+            cp "$RUNNER_TEMP/local_tx.plain" lib/local_tx.dart
+            flutter clean
+            flutter pub get
+            flutter build windows --release
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-app-${{ matrix.variant }}
+          name: ASRbox-windows
           path: build/windows/x64/runner/Release
 
   linux:
