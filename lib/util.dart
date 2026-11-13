@@ -18,10 +18,35 @@ Future<void> setSecure(bool on) async {
 bool get isDesktop =>
     Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
+/// Надёжная запись: данные сначала целиком попадают во временный файл,
+/// предыдущая версия сохраняется как «.bak», затем файл подменяется.
+/// При сбое питания остаётся либо старая, либо новая версия.
 Future<void> writeAtomic(File f, List<int> bytes) async {
   final tmp = File('${f.path}.tmp');
   await tmp.writeAsBytes(bytes, flush: true);
+  if (await f.exists()) {
+    final bak = File('${f.path}.bak');
+    try {
+      if (await bak.exists()) await bak.delete();
+      await f.rename(bak.path);
+    } catch (_) {}
+  }
   await tmp.rename(f.path);
+}
+
+/// Читает файл и проверяет его разбором [parse]; если основной файл повреждён или
+/// потерян, пробует временную и резервную копии. Возвращает null, если ничего не подошло.
+Future<T?> readValid<T>(File f, Future<T> Function(Uint8List bytes) parse) async {
+  for (final p in [f.path, '${f.path}.tmp', '${f.path}.bak']) {
+    final c = File(p);
+    try {
+      if (!await c.exists()) continue;
+      return await parse(await c.readAsBytes());
+    } catch (_) {
+      continue;
+    }
+  }
+  return null;
 }
 
 Future<bool> saveBytes(String name, List<int> bytes) async {

@@ -24,7 +24,7 @@ class Ics {
 
   static String export(List<CalEvent> list) {
     final sb = StringBuffer();
-    sb.write('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//MySecure Notes//RU\r\n');
+    sb.write('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//ASRbox//RU\r\n');
     for (final e in list.where((x) => !x.deleted && !x.isTask)) {
       sb.write('BEGIN:VEVENT\r\nUID:${e.id}@mysecure\r\n');
       sb.write('DTSTAMP:${_utc(DateTime.now())}\r\n');

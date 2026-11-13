@@ -39,3 +39,4 @@ flutter:
   assets:
     - assets/tray.ico
     - assets/alert.wav
+    - assets/icon/icon_512.png

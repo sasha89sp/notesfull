@@ -105,7 +105,7 @@ class AppLog extends ChangeNotifier {
   }
 
   String exportText() {
-    final b = StringBuffer('Журнал приложения «Заметки»\n');
+    final b = StringBuffer('Журнал приложения «ASRbox»\n');
     for (final e in entries) {
       b.writeln('${e.at.toIso8601String()} [${e.level}] ${e.module}: ${e.msg}');
     }

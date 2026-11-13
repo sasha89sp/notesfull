@@ -28,7 +28,7 @@ class Desktop with TrayListener, WindowListener {
     const opts = WindowOptions(
       size: Size(1000, 720),
       minimumSize: Size(420, 560),
-      title: 'Заметки',
+      title: 'ASRbox',
     );
     await windowManager.waitUntilReadyToShow(opts, () async {
       await windowManager.show();

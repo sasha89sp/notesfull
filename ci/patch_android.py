@@ -29,8 +29,17 @@ receivers = '''
 '''
 if 'ScheduledNotificationReceiver' not in t:
     t = t.replace('</application>', receivers + '    </application>', 1)
-t = re.sub(r'android:label="[^"]*"', 'android:label="Заметки"', t, count=1)
+t = re.sub(r'android:label="[^"]*"', 'android:label="ASRbox"', t, count=1)
 m.write_text(t, encoding='utf-8')
+
+# ---------- Иконка ASRbox ----------
+import shutil
+icons = pathlib.Path('assets/icon/android')
+if icons.exists():
+    for d in icons.iterdir():
+        dst = root / 'app/src/main/res' / d.name
+        dst.mkdir(parents=True, exist_ok=True)
+        shutil.copy(d / 'ic_launcher.png', dst / 'ic_launcher.png')
 
 # ---------- Gradle: core library desugaring ----------
 for name in ['app/build.gradle.kts', 'app/build.gradle']:

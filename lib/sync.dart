@@ -2,119 +2,76 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cryptography/cryptography.dart';
-import 'package:http/http.dart' as http;
+import 'accounts.dart';
 import 'crypto.dart';
 import 'family.dart';
 import 'merge.dart';
 import 'models.dart';
 import 'pass_store.dart';
+import 'remote.dart';
 import 'store.dart';
 import 'synchist.dart';
 
-class Dav {
-  final String base;
-  final String auth;
-
-  Dav(String url, String user, String pass)
-      : base = url.replaceAll(RegExp(r'/+$'), ''),
-        auth = 'Basic ${base64Encode(utf8.encode('$user:$pass'))}';
-
-  Uri _u(String p) => Uri.parse('$base$p');
-
-  Future<http.Response> _send(String method, String path,
-      {List<int>? body, Map<String, String>? headers}) async {
-    final req = http.Request(method, _u(path));
-    req.headers['Authorization'] = auth;
-    if (headers != null) req.headers.addAll(headers);
-    if (body != null) req.bodyBytes = body;
-    final s = await req.send().timeout(const Duration(seconds: 120));
-    return http.Response.fromStream(s);
-  }
-
-  void _checkAuth(http.Response r) {
-    if (r.statusCode == 401 || r.statusCode == 403) {
-      throw 'Доступ запрещён (${r.statusCode}): проверьте логин и пароль приложения';
-    }
-  }
-
-  /// Создать папку; ошибки (в т.ч. «уже существует») игнорируются.
-  Future<void> mkcol(String path) async {
-    try {
-      await _send('MKCOL', path);
-    } catch (_) {}
-  }
-
-  Future<Uint8List?> get(String path) async {
-    final r = await _send('GET', path);
-    if (r.statusCode == 404) return null;
-    _checkAuth(r);
-    if (r.statusCode >= 400) throw 'GET $path: ${r.statusCode}';
-    return r.bodyBytes;
-  }
-
-  Future<void> put(String path, List<int> data) async {
-    final r = await _send('PUT', path, body: data);
-    _checkAuth(r);
-    if (r.statusCode >= 300) throw 'PUT $path: ${r.statusCode}';
-  }
-
-  Future<void> delete(String path) async {
-    try {
-      await _send('DELETE', path);
-    } catch (_) {}
-  }
-
-  /// Имена файлов в папке (без вложенных папок)
-  Future<List<String>> list(String path) async {
-    final r = await _send('PROPFIND', path, headers: {
-      'Depth': '1',
-      'Content-Type': 'application/xml',
-    }, body: utf8.encode(
-        '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>'));
-    if (r.statusCode == 404) return [];
-    _checkAuth(r);
-    if (r.statusCode >= 400) throw 'PROPFIND $path: ${r.statusCode}';
-    final body = utf8.decode(r.bodyBytes, allowMalformed: true);
-    final re = RegExp(
-        r'<(?:[A-Za-z0-9]+:)?href>\s*([^<]+?)\s*</(?:[A-Za-z0-9]+:)?href>',
-        caseSensitive: false);
-    final out = <String>[];
-    for (final m in re.allMatches(body)) {
-      final h = Uri.decodeFull(m.group(1)!);
-      if (h.endsWith('/')) continue;
-      out.add(h.split('/').last);
-    }
-    return out;
-  }
-
-  /// Атомарная загрузка: file.tmp -> MOVE -> file
-  Future<void> putAtomic(String path, List<int> data) async {
-    final tmp = '$path.tmp';
-    await put(tmp, data);
-    final r = await _send('MOVE', tmp, headers: {
-      'Destination': _u(path).toString(),
-      'Overwrite': 'T',
-    });
-    if (r.statusCode >= 300) {
-      await put(path, data);
-      await delete(tmp);
-    }
-  }
-}
-
 class SyncService {
-  static const String root = '/MySecureApp';
-  static const String personalDir = '$root/personal';
-  static const String familyDir = '$root/FamilyShared';
+  /// Корневая папка данных на хранилище (задаётся при подключении).
+  static String root = '/MySecureApp';
+
+  /// Личная папка пользователя: у каждого аккаунта своя, чужие данные недоступны
+  /// (и зашифрованы ключом из его собственного пароля).
+  static String userId = '';
+  static String get personalDir =>
+      userId.isEmpty ? '$root/personal' : '$root/users/$userId';
+
+  /// Корень общей/семейной группы: та же папка либо отдельный WebDAV (grp*).
+  static String groupRoot = '/MySecureApp';
+  static String get familyDir => '$groupRoot/FamilyShared';
+  static String get chatDir => '$groupRoot/chat';
+
+  /// Привязать константы к настройкам текущего профиля.
+  static void bind(Settings st) {
+    final f = st.folder.trim();
+    root = f.isEmpty ? '/MySecureApp' : (f.startsWith('/') ? f : '/$f');
+    userId = st.userId;
+    if (st.groupConfigured) {
+      final g = st.grpFolder.trim();
+      groupRoot = g.isEmpty ? '/ASRbox-Group' : (g.startsWith('/') ? g : '/$g');
+    } else {
+      groupRoot = root;
+    }
+  }
+
+  /// Хранилище общей группы: отдельный WebDAV, если задан, иначе то же, что личное.
+  /// Так участники семьи могут быть авторизованы через разные WebDAV.
+  static Remote groupOf(Settings st) {
+    bind(st);
+    if (st.groupConfigured) return Dav(st.grpUrl, st.grpUser, st.grpPass);
+    return remoteOf(st);
+  }
+
+  /// Хранилище по настройкам: WebDAV или локальная папка.
+  static Remote remoteOf(Settings st) {
+    bind(st);
+    if (st.storage == 'local') return LocalRemote(st.localPath);
+    return Dav(st.url, st.user, st.pass);
+  }
 
   static Future<void> run(Store s, SyncStats r, CancelToken tok) async {
     final st = s.settings;
-    final dav = Dav(st.url, st.user, st.pass);
-    await dav.mkcol(root);
-    await dav.mkcol('$root/profiles');
+    final dav = remoteOf(st);
+    await dav.mkcolAll(root);
+    if (!st.groupConfigured) await dav.mkcol('$groupRoot/profiles');
+    await dav.mkcol('$root/users');
+    await dav.mkcol(personalDir);
+    await _settingsSync(dav, s);
+    tok.check();
+    final gdav = groupOf(st);
+    if (st.groupConfigured) {
+      await gdav.mkcolAll(groupRoot);
+      await gdav.mkcol('$groupRoot/profiles');
+    }
     await FamilyKeys.ensureKeyPair(s);
-    await _putProfile(dav, s);
-    await FamilyKeys.fetchMine(dav, s);
+    await _putProfile(gdav, s);
+    await FamilyKeys.fetchMine(gdav, s);
     tok.check();
 
     // 1. Заметки (высокий приоритет)
@@ -151,16 +108,34 @@ class SyncService {
 
     final fk = await s.familyKey();
     if (fk != null) {
-      await _scope(dav, s, 'family', familyDir, fk, r, tok);
+      await _scope(gdav, s, 'family', familyDir, fk, r, tok);
       tok.check();
-      await _comments(dav, s, fk, r, tok);
+      await _comments(gdav, s, fk, r, tok);
+      await _chat(gdav, s, fk, r, tok);
     } else if (s.notes.any((n) => n.vault == 'family' && !n.deleted)) {
       r.log.add('Общие заметки пропущены: нет семейного ключа, попросите владельца выдать доступ');
     }
     tok.check();
 
     // 3. Вложения (низкий приоритет)
-    await _attachments(dav, s, fk, r, tok);
+    await _attachments(dav, gdav, s, fk, r, tok);
+  }
+
+  /// Внутренние настройки (календарь, ключи, модули…) едут вместе с аккаунтом:
+  /// побеждает версия с более поздней отметкой времени.
+  static Future<void> _settingsSync(Remote dav, Store s) async {
+    final k = s.syncKey;
+    if (k == null) return;
+    final st = s.settings;
+    final m = await Accounts.pullSettings(dav, personalDir, k);
+    final ru = (m?['settingsUpdatedAt'] ?? 0) as int;
+    if (m != null && ru > st.settingsUpdatedAt) {
+      s.settings = Accounts.applySettings(st, m);
+      await s.saveSettings(touch: false);
+      bind(s.settings);
+    } else if (m == null || st.settingsUpdatedAt > ru) {
+      await Accounts.pushSettings(dav, personalDir, k, st);
+    }
   }
 
   /// Проверка при подключении онлайн-профиля: есть ли в облаке данные и подходит ли пароль.
@@ -196,12 +171,33 @@ class SyncService {
     }
   }
 
+  /// Проверка пароля для данных старой версии (папка с `personal` без аккаунтов).
+  /// Возвращает ok | empty | wrong | error:<текст>
+  static Future<String> verifyLegacy(Remote r, String folder, String pw) async {
+    try {
+      final sk = await Crypto.deriveFixed(pw, 'mysecure-personal-sync-v1');
+      final dir = '${folder.startsWith('/') ? folder : '/$folder'}/personal';
+      final ev = await r.get('$dir/events.enc');
+      if (ev != null) {
+        try {
+          await Crypto.decrypt(sk, ev);
+          return 'ok';
+        } catch (_) {
+          return 'wrong';
+        }
+      }
+      return 'empty';
+    } catch (e) {
+      return 'error:$e';
+    }
+  }
+
   // ---------------------------------------------------------------- профиль
 
-  static Future<void> _putProfile(Dav dav, Store s) async {
+  static Future<void> _putProfile(Remote dav, Store s) async {
     final st = s.settings;
     await dav.put(
-      '$root/profiles/${st.profileId}.json',
+      '$groupRoot/profiles/${st.profileId}.json',
       utf8.encode(jsonEncode({
         'uuid': st.profileId,
         'name': s.author,
@@ -214,11 +210,11 @@ class SyncService {
 
   static Future<List<Map<String, dynamic>>> members(Store s) async {
     final st = s.settings;
-    final dav = Dav(st.url, st.user, st.pass);
-    final names = await dav.list('$root/profiles');
+    final dav = groupOf(st);
+    final names = await dav.list('$groupRoot/profiles');
     final out = <Map<String, dynamic>>[];
     for (final n in names.where((e) => e.endsWith('.json'))) {
-      final b = await dav.get('$root/profiles/$n');
+      final b = await dav.get('$groupRoot/profiles/$n');
       if (b == null) continue;
       try {
         out.add(Map<String, dynamic>.from(jsonDecode(utf8.decode(b)) as Map));
@@ -229,7 +225,7 @@ class SyncService {
 
   // ---------------------------------------------------------------- заметки
 
-  static Future<void> _scope(Dav dav, Store s, String vault, String dir,
+  static Future<void> _scope(Remote dav, Store s, String vault, String dir,
       SecretKey key, SyncStats r, CancelToken tok) async {
     final kind = vault == 'family' ? 'family' : 'notes';
     await dav.mkcol(dir);
@@ -319,7 +315,7 @@ class SyncService {
 
   /// Слияние списка записей {id, updatedAt} по принципу «новее побеждает».
   static Future<void> _mergeBlob(
-    Dav dav,
+    Remote dav,
     String path,
     SecretKey key,
     List<Map<String, dynamic>> local,
@@ -388,8 +384,9 @@ class SyncService {
   static Future<void> runPasswords(Store s, PassStore p) async {
     final st = s.settings;
     if (!st.syncConfigured || !p.unlocked || p.syncKey == null) return;
-    final dav = Dav(st.url, st.user, st.pass);
-    await dav.mkcol(root);
+    final dav = remoteOf(st);
+    await dav.mkcolAll(root);
+    await dav.mkcol('$root/users');
     await dav.mkcol(personalDir);
     final r = SyncStats();
     await _mergeBlob(
@@ -416,7 +413,7 @@ class SyncService {
   // ---------------------------------------------------------------- комментарии
 
   static Future<void> _comments(
-      Dav dav, Store s, SecretKey fk, SyncStats r, CancelToken tok) async {
+      Remote dav, Store s, SecretKey fk, SyncStats r, CancelToken tok) async {
     final famNotes =
         s.notes.where((n) => n.vault == 'family' && !n.deleted).toList();
     if (famNotes.isEmpty) return;
@@ -495,8 +492,64 @@ class SyncService {
     }
   }
 
+  /// Чат: каждое сообщение — отдельный файл, зашифрованный семейным ключом.
+  static Future<void> _chat(
+      Remote g, Store s, SecretKey fk, SyncStats r, CancelToken tok) async {
+    if (!s.settings.moduleOn('chat')) return;
+    await s.ensureChat();
+    const room = 'general';
+    final dir = '$chatDir/$room';
+    var changed = false;
+    final unsent = s.chat.where((m) => !m.synced).toList();
+    if (unsent.isNotEmpty) {
+      await g.mkcolAll(dir);
+      for (final m in unsent) {
+        tok.check();
+        await g.putAtomic('$dir/${m.fileName}',
+            await Crypto.encrypt(fk, utf8.encode(jsonEncode(m.toWire()))));
+        m.synced = true;
+        changed = true;
+        r.u('chat');
+      }
+    }
+    final names = (await g.list(dir)).where((n) => n.endsWith('.enc')).toList()..sort();
+    final have = s.chat.map((m) => m.id).toSet();
+    for (final n in names.reversed.take(300)) {
+      tok.check();
+      final id = n.substring(0, n.length - 4).split('_').last;
+      if (have.contains(id)) continue;
+      final b = await g.get('$dir/$n');
+      if (b == null) continue;
+      try {
+        final m = ChatMsg.fromJson(Map<String, dynamic>.from(
+            jsonDecode(utf8.decode(await Crypto.decrypt(fk, b))) as Map));
+        m.synced = true;
+        s.chat.add(m);
+        changed = true;
+        r.d('chat');
+      } catch (_) {
+        // чужой ключ или повреждённый файл — пропускаем
+      }
+    }
+    if (changed) {
+      s.chat.sort((a, b) => a.at.compareTo(b.at));
+      await s.saveChat();
+      s.refresh();
+    }
+  }
+
+  /// Лёгкое обновление только чата (опрос из экрана чата).
+  static Future<void> chatOnly(Store s) async {
+    final st = s.settings;
+    if (!st.syncConfigured && !st.groupConfigured) return;
+    final fk = await s.familyKey();
+    if (fk == null) return;
+    final g = groupOf(st);
+    await _chat(g, s, fk, SyncStats(), CancelToken());
+  }
+
   static Future<void> _attachments(
-      Dav dav, Store s, SecretKey? fk, SyncStats r, CancelToken tok) async {
+      Remote dav, Remote gdav, Store s, SecretKey? fk, SyncStats r, CancelToken tok) async {
     final mode = s.settings.attMode;
     if (mode == 'off') return;
     if (mode == 'wifi' && !await _onWifi()) return;
@@ -509,6 +562,7 @@ class SyncService {
       final key = family ? fk : s.syncKey;
       if (key == null) continue;
       final dir = '${family ? familyDir : personalDir}/attachments';
+      final rm = family ? gdav : dav;
       var dirMade = false;
 
       for (final b in n.blocks) {
@@ -520,14 +574,14 @@ class SyncService {
           final plain = await s.readAttachment(id);
           if (plain == null) continue;
           if (!dirMade) {
-            await dav.mkcol(dir);
+            await rm.mkcol(dir);
             dirMade = true;
           }
-          await dav.putAtomic('$dir/$id.enc', await Crypto.encrypt(key, plain));
+          await rm.putAtomic('$dir/$id.enc', await Crypto.encrypt(key, plain));
           done.add(tag);
           r.u('attachments');
         } else {
-          final bytes = await dav.get('$dir/$id.enc');
+          final bytes = await rm.get('$dir/$id.enc');
           if (bytes == null) continue;
           final plain = await Crypto.decrypt(key, bytes);
           await s.writeAttachment(id, plain);

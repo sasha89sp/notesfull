@@ -534,6 +534,7 @@ class CalEvent {
   String gId;
   int gSynced;
   int gLocal;
+  String noteId; // заметка, из которой создано событие (связь модулей)
   int updatedAt;
 
   CalEvent({
@@ -550,6 +551,7 @@ class CalEvent {
     this.gId = '',
     this.gSynced = 0,
     this.gLocal = 0,
+    this.noteId = '',
     required this.updatedAt,
   });
 
@@ -587,6 +589,7 @@ class CalEvent {
         'gId': gId,
         'gSynced': gSynced,
         'gLocal': gLocal,
+        'noteId': noteId,
         'updatedAt': updatedAt,
       };
 
@@ -604,6 +607,7 @@ class CalEvent {
         gId: (j['gId'] ?? '') as String,
         gSynced: (j['gSynced'] ?? 0) as int,
         gLocal: (j['gLocal'] ?? 0) as int,
+        noteId: (j['noteId'] ?? '') as String,
         updatedAt: (j['updatedAt'] ?? 0) as int,
       );
 }
@@ -708,6 +712,16 @@ class Settings {
   String theme; // system | light | dark
   List<String> attDone;
   bool verboseLog;
+  String storage; // webdav | local
+  String folder; // корневая папка данных на хранилище
+  String localPath; // путь, если storage == local
+  String userId; // идентификатор аккаунта ASRbox
+  String grpUrl; // отдельный WebDAV общей группы (может отличаться от личного)
+  String grpUser;
+  String grpPass;
+  String grpFolder;
+  Map<String, bool> modules; // notes, calendar, pass, chat
+  int settingsUpdatedAt;
 
   Settings({
     this.url = 'https://webdav.cloud.mail.ru',
@@ -737,7 +751,18 @@ class Settings {
     this.theme = 'system',
     List<String>? attDone,
     this.verboseLog = false,
-  }) : attDone = attDone ?? [];
+    this.storage = 'webdav',
+    this.folder = '/MySecureApp',
+    this.localPath = '',
+    this.userId = '',
+    this.grpUrl = '',
+    this.grpUser = '',
+    this.grpPass = '',
+    this.grpFolder = '/ASRbox-Group',
+    Map<String, bool>? modules,
+    this.settingsUpdatedAt = 0,
+  })  : attDone = attDone ?? [],
+        modules = modules ?? {'notes': true, 'calendar': true, 'pass': true, 'chat': true};
 
   Map<String, dynamic> toJson() => {
         'url': url,
@@ -767,6 +792,16 @@ class Settings {
         'theme': theme,
         'attDone': attDone,
         'verboseLog': verboseLog,
+        'storage': storage,
+        'folder': folder,
+        'localPath': localPath,
+        'userId': userId,
+        'grpUrl': grpUrl,
+        'grpUser': grpUser,
+        'grpPass': grpPass,
+        'grpFolder': grpFolder,
+        'modules': modules,
+        'settingsUpdatedAt': settingsUpdatedAt,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) {
@@ -799,10 +834,87 @@ class Settings {
       theme: (j['theme'] ?? 'system') as String,
       attDone: ((j['attDone'] ?? []) as List).map((e) => e.toString()).toList(),
       verboseLog: (j['verboseLog'] ?? false) as bool,
+      storage: (j['storage'] ?? 'webdav') as String,
+      folder: (j['folder'] ?? '/MySecureApp') as String,
+      localPath: (j['localPath'] ?? '') as String,
+      userId: (j['userId'] ?? '') as String,
+      grpUrl: (j['grpUrl'] ?? '') as String,
+      grpUser: (j['grpUser'] ?? '') as String,
+      grpPass: (j['grpPass'] ?? '') as String,
+      grpFolder: (j['grpFolder'] ?? d.grpFolder) as String,
+      modules: {
+        ...d.modules,
+        ...((j['modules'] ?? {}) as Map).map((k, v) => MapEntry(k.toString(), v == true)),
+      },
+      settingsUpdatedAt: (j['settingsUpdatedAt'] ?? 0) as int,
     );
   }
 
-  bool get syncConfigured => url.isNotEmpty && user.isNotEmpty && pass.isNotEmpty;
+  bool get syncConfigured => storage == 'local'
+      ? localPath.isNotEmpty
+      : url.isNotEmpty && user.isNotEmpty && pass.isNotEmpty;
+  bool get groupConfigured => grpUrl.isNotEmpty && grpUser.isNotEmpty && grpPass.isNotEmpty;
+  bool moduleOn(String m) => modules[m] ?? true;
   bool get googleConfigured =>
       gClientId.isNotEmpty && gSecret.isNotEmpty && gRefresh.isNotEmpty;
+}
+
+// ---------------------------------------------------------------- Чаты
+
+/// Сообщение чата общей группы. Хранится как отдельный зашифрованный файл
+/// (семейным ключом) — сообщения только добавляются, поэтому конфликтов нет.
+class ChatMsg {
+  String id;
+  String room;
+  String authorId;
+  String author;
+  int at;
+  String text;
+  bool synced;
+
+  ChatMsg({
+    required this.id,
+    this.room = 'general',
+    this.authorId = '',
+    this.author = '',
+    required this.at,
+    this.text = '',
+    this.synced = false,
+  });
+
+  factory ChatMsg.create(String room, String authorId, String author, String text) =>
+      ChatMsg(id: newId(), room: room, authorId: authorId, author: author, at: nowMs(), text: text);
+
+  /// Имя файла на хранилище: время в начале, чтобы список сортировался.
+  String get fileName => '${at.toString().padLeft(14, '0')}_$id.enc';
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'room': room,
+        'authorId': authorId,
+        'author': author,
+        'at': at,
+        'text': text,
+        'synced': synced,
+      };
+
+  /// Для отправки (без локального флага)
+  Map<String, dynamic> toWire() => {
+        'id': id,
+        'room': room,
+        'authorId': authorId,
+        'author': author,
+        'at': at,
+        'text': text,
+      };
+
+  factory ChatMsg.fromJson(Map<String, dynamic> j) => ChatMsg(
+        id: j['id'] as String,
+        room: (j['room'] ?? 'general') as String,
+        authorId: (j['authorId'] ?? '') as String,
+        author: (j['author'] ?? '') as String,
+        at: (j['at'] ?? 0) as int,
+        text: (j['text'] ?? '') as String,
+        synced: (j['synced'] ?? false) as bool,
+      );
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'calendar_page.dart';
+import 'chat_page.dart';
 import 'desktop.dart';
 import 'editor.dart';
 import 'event_screen.dart';
@@ -32,7 +33,8 @@ class Shell extends StatefulWidget {
 }
 
 class _ShellState extends State<Shell> with WidgetsBindingObserver {
-  int _tab = 0;
+  String _tab = 'home';
+  final Set<String> _visited = {'home'};
   String _filter = 'all';
   String? _tag;
   Timer? _timer;
@@ -69,14 +71,32 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) s.syncAll();
   }
 
+  bool _on(String m) => s.settings.moduleOn(m);
+
+  /// Активные разделы: отключённые модули не показываются и не загружаются.
+  List<String> get _mods => [
+        'home',
+        if (_on('notes')) 'notes',
+        if (_on('calendar')) 'calendar',
+        if (_on('pass')) 'pass',
+        if (_on('chat')) 'chat',
+      ];
+
+  void _go(String m) => setState(() {
+        _tab = m;
+        _visited.add(m);
+      });
+
   String get _title {
     switch (_tab) {
-      case 1:
+      case 'notes':
         return _filterName();
-      case 2:
+      case 'calendar':
         return 'Календарь';
-      case 3:
+      case 'pass':
         return 'Пароли';
+      case 'chat':
+        return 'Чаты';
       default:
         return _filter == 'all' ? 'Главная' : _filterName();
     }
@@ -158,7 +178,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
 
   Widget _drawer() {
     final tags = <String>{};
-    for (final n in s.notes.where((n) => !n.deleted)) {
+    for (final n in (_on('notes') ? s.notes.where((n) => !n.deleted) : <Note>[])) {
       tags.addAll(n.tags);
     }
     final sortedTags = tags.toList()..sort();
@@ -184,37 +204,53 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             child: Text('МОДУЛИ',
                 style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
           ),
-          _drawerItem(Icons.notes, 'Заметки', () => setState(() {
-                _tab = 1;
+          if (_on('notes'))
+            _drawerItem(Icons.notes, 'Заметки', () {
+              _go('notes');
+              setState(() {
                 _filter = 'all';
                 _tag = null;
-              }), selected: _tab == 1),
-          _drawerItem(Icons.calendar_month_outlined, 'Календарь',
-              () => setState(() => _tab = 2),
-              selected: _tab == 2),
-          _drawerItem(Icons.key_outlined, 'Пароли', () => setState(() => _tab = 3),
-              selected: _tab == 3),
+              });
+            }, selected: _tab == 'notes'),
+          if (_on('calendar'))
+            _drawerItem(Icons.calendar_month_outlined, 'Календарь',
+                () => _go('calendar'),
+                selected: _tab == 'calendar'),
+          if (_on('pass'))
+            _drawerItem(Icons.key_outlined, 'Пароли', () => _go('pass'),
+                selected: _tab == 'pass'),
+          if (_on('chat'))
+            _drawerItem(Icons.chat_bubble_outline, 'Чаты', () => _go('chat'),
+                selected: _tab == 'chat'),
           const Divider(),
           const Padding(
             padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
             child: Text('БИБЛИОТЕКА',
                 style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
           ),
-          _drawerItem(Icons.lock_outline, 'Личное', () => setState(() {
-                _tab = 1;
-                _filter = 'personal';
-                _tag = null;
-              }), selected: _tab == 1 && _filter == 'personal'),
-          _drawerItem(Icons.group_outlined, 'Семейное', () => setState(() {
-                _tab = 1;
-                _filter = 'family';
-                _tag = null;
-              }), selected: _tab == 1 && _filter == 'family'),
-          _drawerItem(Icons.star_border, 'Избранное', () => setState(() {
-                _tab = 1;
-                _filter = 'fav';
-                _tag = null;
-              }), selected: _tab == 1 && _filter == 'fav'),
+          if (_on('notes')) ...[
+          _drawerItem(Icons.lock_outline, 'Личное', () {
+                _go('notes');
+                setState(() {
+                  _filter = 'personal';
+                  _tag = null;
+                });
+              }, selected: _tab == 'notes' && _filter == 'personal'),
+          _drawerItem(Icons.group_outlined, 'Семейное', () {
+                _go('notes');
+                setState(() {
+                  _filter = 'family';
+                  _tag = null;
+                });
+              }, selected: _tab == 'notes' && _filter == 'family'),
+          _drawerItem(Icons.star_border, 'Избранное', () {
+                _go('notes');
+                setState(() {
+                  _filter = 'fav';
+                  _tag = null;
+                });
+              }, selected: _tab == 'notes' && _filter == 'fav'),
+          ],
           if (sortedTags.isNotEmpty) ...[
             const Divider(),
             const Padding(
@@ -229,8 +265,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                 selected: _tag == t,
                 onTap: () {
                   Navigator.pop(context);
+                  _go('notes');
                   setState(() {
-                    _tab = 1;
                     _filter = 'all';
                     _tag = t;
                   });
@@ -313,28 +349,63 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     );
   }
 
-  Widget _body() {
-    return IndexedStack(index: _tab, children: [
-      NotesList(
-          key: const ValueKey('home'),
-          store: s,
-          filter: _filter,
-          tag: _tag,
-          home: true,
-          onClearTag: () => setState(() => _tag = null)),
-      NotesList(
-          key: const ValueKey('notes'),
-          store: s,
-          filter: _filter,
-          tag: _tag,
-          home: false,
-          onClearTag: () => setState(() => _tag = null)),
-      CalendarPage(store: s),
-      _tab == 3
-          ? PassPage(store: s, pass: widget.pass)
-          : const SizedBox.shrink(),
-    ]);
+  /// Страницы строятся лениво: модуль загружается при первом открытии,
+  /// а отключённый не загружается вовсе.
+  Widget _page(String m) {
+    if (m != _tab && !_visited.contains(m)) return const SizedBox.shrink();
+    switch (m) {
+      case 'home':
+        return _on('notes')
+            ? NotesList(
+                key: const ValueKey('home'),
+                store: s,
+                filter: _filter,
+                tag: _tag,
+                home: true,
+                onClearTag: () => setState(() => _tag = null))
+            : _ModulesHome(mods: _mods, onOpen: _go);
+      case 'notes':
+        return NotesList(
+            key: const ValueKey('notes'),
+            store: s,
+            filter: _filter,
+            tag: _tag,
+            home: false,
+            onClearTag: () => setState(() => _tag = null));
+      case 'calendar':
+        return CalendarPage(store: s);
+      case 'pass':
+        return _tab == 'pass'
+            ? PassPage(store: s, pass: widget.pass)
+            : const SizedBox.shrink();
+      case 'chat':
+        return ChatPage(store: s);
+      default:
+        return const SizedBox.shrink();
+    }
   }
+
+  Widget _body() {
+    final mods = _mods;
+    if (!mods.contains(_tab)) _tab = 'home';
+    return IndexedStack(
+        index: mods.indexOf(_tab), children: [for (final m in mods) _page(m)]);
+  }
+
+  static const _icons = {
+    'home': Icons.home_outlined,
+    'notes': Icons.notes,
+    'calendar': Icons.calendar_month_outlined,
+    'pass': Icons.key_outlined,
+    'chat': Icons.chat_bubble_outline,
+  };
+  static const _names = {
+    'home': 'Главная',
+    'notes': 'Заметки',
+    'calendar': 'Календарь',
+    'pass': 'Пароли',
+    'chat': 'Чаты',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -388,25 +459,14 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                   right: 0,
                   child: LinearProgressIndicator(value: s.progress, minHeight: 2),
                 ),
-              if (_tab == 0) Fab(onPressed: _quickCreate),
+              if (_tab == 'home' && _on('notes')) Fab(onPressed: _quickCreate),
             ]),
             bottomNavigationBar: NavigationBar(
-              selectedIndex: _tab,
-              onDestinationSelected: (i) => setState(() {
-                _tab = i;
-                if (i == 1 || i == 0) {
-                  // фильтр библиотеки относится только к вкладке «Заметки»
-                }
-              }),
-              destinations: const [
-                NavigationDestination(
-                    icon: Icon(Icons.home_outlined), label: 'Главная'),
-                NavigationDestination(
-                    icon: Icon(Icons.notes), label: 'Заметки'),
-                NavigationDestination(
-                    icon: Icon(Icons.calendar_month_outlined), label: 'Календарь'),
-                NavigationDestination(
-                    icon: Icon(Icons.key_outlined), label: 'Пароли'),
+              selectedIndex: _mods.contains(_tab) ? _mods.indexOf(_tab) : 0,
+              onDestinationSelected: (i) => _go(_mods[i]),
+              destinations: [
+                for (final m in _mods)
+                  NavigationDestination(icon: Icon(_icons[m]), label: _names[m]!),
               ],
             ),
           ),
@@ -460,5 +520,47 @@ class _AlertView extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Главная, когда модуль «Заметки» отключён: быстрые переходы к включённым модулям.
+class _ModulesHome extends StatelessWidget {
+  final List<String> mods;
+  final void Function(String) onOpen;
+  const _ModulesHome({required this.mods, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    const names = {
+      'calendar': 'Календарь',
+      'pass': 'Пароли',
+      'chat': 'Чаты',
+    };
+    const icons = {
+      'calendar': Icons.calendar_month_outlined,
+      'pass': Icons.key_outlined,
+      'chat': Icons.chat_bubble_outline,
+    };
+    final l = mods.where((m) => names.containsKey(m)).toList();
+    if (l.isEmpty) {
+      return const Center(
+          child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('Все модули отключены. Включите нужные в Настройки → Модули.',
+                  textAlign: TextAlign.center)));
+    }
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      for (final m in l)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: AppCard(
+            child: ListTile(
+              leading: Icon(icons[m]),
+              title: Text(names[m]!),
+              onTap: () => onOpen(m),
+            ),
+          ),
+        ),
+    ]);
   }
 }

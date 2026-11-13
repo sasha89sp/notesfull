@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'applog.dart';
 import 'autofill.dart';
 import 'backup.dart';
@@ -62,6 +63,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'gId': TextEditingController(text: st.gClientId),
       'gSecret': TextEditingController(text: st.gSecret),
       'lock': TextEditingController(text: st.autoLock.toString()),
+      'gUrl': TextEditingController(text: st.grpUrl),
+      'gUser': TextEditingController(text: st.grpUser),
+      'gPass': TextEditingController(text: st.grpPass),
+      'gFolder': TextEditingController(text: st.grpFolder),
     };
     _syncSig = '${st.url}|${st.user}|${st.pass}';
     s.bioAvailable().then((v) {
@@ -93,6 +98,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     st.txModel = c['txModel']!.text.trim();
     st.gClientId = c['gId']!.text.trim();
     st.gSecret = c['gSecret']!.text.trim();
+    st.grpUrl = c['gUrl']!.text.trim();
+    st.grpUser = c['gUser']!.text.trim();
+    st.grpPass = c['gPass']!.text;
+    st.grpFolder = c['gFolder']!.text.trim();
     final l = int.tryParse(c['lock']!.text.trim()) ?? 90;
     st.autoLock = l.clamp(15, 3600).toInt();
   }
@@ -151,6 +160,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ]),
     );
+  }
+
+  Future<void> _copyInvite() async {
+    _apply();
+    final j = jsonEncode({
+      'v': 1,
+      'u': st.grpUrl,
+      'n': st.grpUser,
+      'p': st.grpPass,
+      'f': st.grpFolder,
+    });
+    await Clipboard.setData(ClipboardData(text: 'asrbox:${base64Url.encode(utf8.encode(j))}'));
+    if (mounted) toast(context, 'Приглашение скопировано');
+  }
+
+  Future<void> _pasteInvite() async {
+    final d = await Clipboard.getData(Clipboard.kTextPlain);
+    final t = (d?.text ?? '').trim();
+    try {
+      if (!t.startsWith('asrbox:')) throw 'нет приглашения в буфере обмена';
+      final m = jsonDecode(utf8.decode(base64Url.decode(t.substring(7)))) as Map;
+      setState(() {
+        c['gUrl']!.text = (m['u'] ?? '') as String;
+        c['gUser']!.text = (m['n'] ?? '') as String;
+        c['gPass']!.text = (m['p'] ?? '') as String;
+        c['gFolder']!.text = (m['f'] ?? '') as String;
+      });
+      _autoNow();
+      if (mounted) toast(context, 'Группа подключена');
+    } catch (e) {
+      if (mounted) toast(context, 'Приглашение не распознано: $e');
+    }
   }
 
   Future<void> _members() async {
@@ -487,6 +528,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Hint('Запасной вариант без ключей: общий семейный пароль (одинаковый у всех). '
               'Не используйте его вместе с семейным ключом.'),
           _field('family', 'Семейный пароль', obscure: true),
+
+          const SectionTitle('Модули'),
+          const Hint('Отключённый модуль не загружается и не нагружает приложение. '
+              'Связи работают и при отключённом модуле: например, событие, созданное '
+              'из заметки, попадёт в календарь и напомнит о себе.'),
+          for (final m in const {
+            'notes': 'Заметки',
+            'calendar': 'Календарь',
+            'pass': 'Пароли',
+            'chat': 'Чаты',
+          }.entries)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(m.value),
+              value: st.moduleOn(m.key),
+              onChanged: (v) {
+                setState(() => st.modules[m.key] = v);
+                _autoNow();
+              },
+            ),
+
+          const SectionTitle('Общая группа (другой WebDAV)'),
+          const Hint('Чтобы объединить в семью людей, которые входят через разные WebDAV, '
+              'укажите один общий WebDAV для группы: общие заметки, комментарии и чат '
+              'будут лежать там. Личные данные остаются на вашем хранилище. '
+              'Оставьте пустым, если все используют одно хранилище.'),
+          _field('gUrl', 'Адрес WebDAV группы'),
+          _field('gUser', 'Логин WebDAV группы'),
+          _field('gPass', 'Пароль WebDAV группы', obscure: true),
+          _field('gFolder', 'Папка группы'),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: st.groupConfigured ? _copyInvite : null,
+                child: const Text('Копировать приглашение'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _pasteInvite,
+                child: const Text('Вставить приглашение'),
+              ),
+            ),
+          ]),
+          const Hint('Приглашение содержит доступ к WebDAV группы — передавайте только '
+              'тем, кому доверяете. Семейный ключ выдаётся отдельно, в «Участники».'),
 
           const SectionTitle('Фото'),
           _drop('Качество при добавлении', st.photoQuality, const {

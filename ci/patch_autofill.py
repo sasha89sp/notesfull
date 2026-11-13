@@ -80,7 +80,7 @@ open class MainActivity : FlutterFragmentActivity() {{
         @Suppress("DEPRECATION")
         val passId = intent.getParcelableExtra<AutofillId>("af_pass")
         val pres = RemoteViews(packageName, android.R.layout.simple_list_item_1)
-        pres.setTextViewText(android.R.id.text1, "Заметки")
+        pres.setTextViewText(android.R.id.text1, "ASRbox")
         @Suppress("DEPRECATION")
         val ds = Dataset.Builder(pres)
         if (userId != null) ds.setValue(userId, AutofillValue.forText(user))
@@ -181,7 +181,7 @@ class MySecureAutofillService : AutofillService() {{
             PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE
         )
         val pres = RemoteViews(packageName, android.R.layout.simple_list_item_1)
-        pres.setTextViewText(android.R.id.text1, "Заметки: подобрать пароль")
+        pres.setTextViewText(android.R.id.text1, "ASRbox: подобрать пароль")
 
         val resp = FillResponse.Builder()
             .setAuthentication(ids.toTypedArray(), pending.intentSender, pres)
@@ -207,7 +207,7 @@ if 'MySecureAutofillService' not in t:
             android:windowSoftInputMode="adjustResize" />
         <service
             android:name=".MySecureAutofillService"
-            android:label="Заметки"
+            android:label="ASRbox"
             android:exported="true"
             android:permission="android.permission.BIND_AUTOFILL_SERVICE">
             <intent-filter>

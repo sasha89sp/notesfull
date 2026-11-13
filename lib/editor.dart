@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'comments_view.dart';
+import 'hub.dart';
 import 'media.dart';
 import 'models.dart';
 import 'store.dart';
@@ -80,7 +81,10 @@ class _EditorScreenState extends State<EditorScreen> {
     n.updatedAt = nowMs();
     n.editor = s.author;
     _deb?.cancel();
-    _deb = Timer(const Duration(milliseconds: 600), s.changed);
+    _deb = Timer(const Duration(milliseconds: 600), () {
+      s.changed();
+      Hub.noteRenamed(s, n);
+    });
   }
 
   TextEditingController _ctlFor(Block b) =>
@@ -127,15 +131,39 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   void _menu(String v) {
-    if (v == 'delete') {
+    if (v == 'event') {
+      _toCalendar();
+    } else if (v == 'delete') {
       n.deleted = true;
       n.updatedAt = nowMs();
+      Hub.noteDeleted(s, n);
       Navigator.of(context).pop();
     } else if (v == 'history') {
       _showHistory();
     } else if (v == 'fav') {
       setState(() => n.favorite = !n.favorite);
       _touch();
+    }
+  }
+
+  /// Заметка → календарь: событие создаётся автоматически, даже если модуль
+  /// «Календарь» отключён.
+  Future<void> _toCalendar() async {
+    final now = DateTime.now();
+    final d = await showDatePicker(
+        context: context,
+        initialDate: now,
+        firstDate: DateTime(now.year - 1),
+        lastDate: DateTime(now.year + 10));
+    if (d == null || !mounted) return;
+    final t = await showTimePicker(
+        context: context, initialTime: TimeOfDay(hour: (now.hour + 1) % 24, minute: 0));
+    if (t == null || !mounted) return;
+    final when = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+    Hub.eventFromNote(s, n, when);
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Событие добавлено в календарь')));
     }
   }
 
@@ -493,6 +521,7 @@ class _EditorScreenState extends State<EditorScreen> {
           PopupMenuButton<String>(
             onSelected: _menu,
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'event', child: Text('Добавить в календарь')),
               PopupMenuItem(value: 'history', child: Text('История версий')),
               PopupMenuItem(value: 'delete', child: Text('Удалить')),
             ],

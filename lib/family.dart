@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'crypto.dart';
 import 'models.dart';
+import 'remote.dart';
 import 'store.dart';
 import 'sync.dart';
 
@@ -14,7 +15,7 @@ import 'sync.dart';
 class FamilyKeys {
   static final X25519 _x = X25519();
   static final Hkdf _hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
-  static const String keysDir = '${SyncService.root}/keys';
+  static String get keysDir => '${SyncService.groupRoot}/keys';
 
   static String fileFor(String uuid) => 'family_key_for_$uuid.enc';
 
@@ -84,8 +85,8 @@ class FamilyKeys {
   static Future<void> grant(Store s, String uuid, String pubB64) async {
     final st = s.settings;
     if (st.famKey.isEmpty) throw 'У вас нет семейного ключа';
-    final dav = Dav(st.url, st.user, st.pass);
-    await dav.mkcol(SyncService.root);
+    final dav = SyncService.groupOf(st);
+    await dav.mkcol(SyncService.groupRoot);
     await dav.mkcol(keysDir);
     await dav.putAtomic('$keysDir/${fileFor(uuid)}',
         await wrap(base64Decode(st.famKey), pubB64));
@@ -94,7 +95,7 @@ class FamilyKeys {
   /// uuid участников, которым ключ уже выдан.
   static Future<Set<String>> granted(Store s) async {
     final st = s.settings;
-    final dav = Dav(st.url, st.user, st.pass);
+    final dav = SyncService.groupOf(st);
     final names = await dav.list(keysDir);
     final out = <String>{};
     for (final n in names) {
@@ -105,7 +106,7 @@ class FamilyKeys {
   }
 
   /// Если для нас на сервере лежит обёртка — забираем ключ.
-  static Future<bool> fetchMine(Dav dav, Store s) async {
+  static Future<bool> fetchMine(Remote dav, Store s) async {
     final st = s.settings;
     if (st.famKey.isNotEmpty || st.kpPriv.isEmpty) return st.famKey.isNotEmpty;
     final b = await dav.get('$keysDir/${fileFor(st.profileId)}');

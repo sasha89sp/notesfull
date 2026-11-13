@@ -138,7 +138,7 @@ class _AppState extends State<App> {
       );
     }
     return MaterialApp(
-      title: 'Заметки',
+      title: 'ASRbox',
       navigatorKey: navKey,
       debugShowCheckedModeBanner: false,
       theme: _theme(Brightness.light),

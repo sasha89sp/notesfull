@@ -21,6 +21,7 @@ const Map<String, String> kKindNames = {
   'comments': 'комментарии',
   'attachments': 'вложения',
   'passwords': 'пароли',
+  'chat': 'сообщения',
 };
 
 /// Счётчики одной синхронизации.

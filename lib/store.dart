@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
+import 'accounts.dart';
 import 'applog.dart';
 import 'crypto.dart';
 import 'google.dart';
@@ -21,15 +22,21 @@ class ProfileInfo {
   String name;
   String kind; // local | online
   String dir; // пусто = корневая папка (профиль из старой версии)
+  String uid; // идентификатор аккаунта ASRbox на хранилище (пусто — старый профиль)
   ProfileInfo(
-      {required this.id, this.name = '', this.kind = 'local', this.dir = ''});
+      {required this.id,
+      this.name = '',
+      this.kind = 'local',
+      this.dir = '',
+      this.uid = ''});
   Map<String, dynamic> toJson() =>
-      {'id': id, 'name': name, 'kind': kind, 'dir': dir};
+      {'id': id, 'name': name, 'kind': kind, 'dir': dir, 'uid': uid};
   factory ProfileInfo.fromJson(Map<String, dynamic> j) => ProfileInfo(
         id: (j['id'] ?? '') as String,
         name: (j['name'] ?? '') as String,
         kind: (j['kind'] ?? 'local') as String,
         dir: (j['dir'] ?? '') as String,
+        uid: (j['uid'] ?? '') as String,
       );
 }
 
@@ -44,6 +51,8 @@ class Store extends ChangeNotifier {
   List<Note> notes = [];
   List<CalEvent> events = [];
   List<Comment> comments = [];
+  List<ChatMsg> chat = []; // грузится лениво, только если модуль «Чаты» включён
+  bool chatLoaded = false;
   List<NoteFolder> folders = [];
   Settings settings = Settings();
   bool syncing = false;
@@ -141,9 +150,14 @@ class Store extends ChangeNotifier {
       {String kind = 'local',
       String url = '',
       String user = '',
-      String pass = ''}) async {
+      String pass = '',
+      String storage = 'webdav',
+      String folder = '/MySecureApp',
+      String localPath = '',
+      String uid = '',
+      Map<String, dynamic>? remoteSettings}) async {
     final id = newId();
-    final p = ProfileInfo(id: id, name: name, kind: kind, dir: 'p_$id');
+    final p = ProfileInfo(id: id, name: name, kind: kind, dir: 'p_$id', uid: uid);
     profiles.add(p);
     selectProfile(id, save: false);
     await dir.create(recursive: true);
@@ -153,10 +167,29 @@ class Store extends ChangeNotifier {
       settings.url = url;
       settings.user = user;
       settings.pass = pass;
+      settings.storage = storage;
+      settings.folder = folder;
+      settings.localPath = localPath;
+      settings.userId = uid;
+      // внутренние настройки (календарь, ключи, модули…) приходят из облака сами
+      if (remoteSettings != null) {
+        settings = Accounts.applySettings(settings, remoteSettings);
+        authorKeep(name);
+      }
     }
-    await saveSettings();
+    await _saveJson('settings.enc', settings.toJson());
     await _saveIndex();
     AppLog.I.i('profile', 'Создан профиль «$name» ($kind)');
+  }
+
+  void authorKeep(String name) {
+    if (settings.author.isEmpty) settings.author = name;
+  }
+
+  /// Соль ключа синхронизации: у аккаунтов ASRbox своя, у старых профилей прежняя.
+  String get _syncSalt {
+    final u = profileById(curId)?.uid ?? '';
+    return u.isEmpty ? 'mysecure-personal-sync-v1' : 'asrbox-sync-v2:$u';
   }
 
   Future<void> renameCurrent(String name) async {
@@ -202,6 +235,8 @@ class Store extends ChangeNotifier {
     notes = [];
     events = [];
     comments = [];
+    chat = [];
+    chatLoaded = false;
     folders = [];
     history = [];
     settings = Settings();
@@ -218,7 +253,7 @@ class Store extends ChangeNotifier {
     final r = Random.secure();
     final salt = List<int>.generate(16, (_) => r.nextInt(256));
     final k = await Crypto.deriveKey(pw, salt);
-    final sk = await Crypto.deriveFixed(pw, 'mysecure-personal-sync-v1');
+    final sk = await Crypto.deriveFixed(pw, _syncSalt);
     final check = await Crypto.encrypt(k, utf8.encode('ok'));
     await writeAtomic(
       _f('vault.json'),
@@ -250,18 +285,24 @@ class Store extends ChangeNotifier {
       return false;
     }
     key = k;
-    syncKey = await Crypto.deriveFixed(pw, 'mysecure-personal-sync-v1');
+    syncKey = await Crypto.deriveFixed(pw, _syncSalt);
     await _load();
     return true;
   }
 
   Future<void> _load() async {
     final k = key!;
+    // основной файл, затем временный и резервный: сбой при записи не теряет данные
     Future<dynamic> readJson(String n) async {
       final f = _f(n);
-      if (!await f.exists()) return null;
-      final data = await Crypto.decrypt(k, await f.readAsBytes());
-      return jsonDecode(utf8.decode(data));
+      final v = await readValid<dynamic>(f, (b) async {
+        final data = await Crypto.decrypt(k, b);
+        return jsonDecode(utf8.decode(data));
+      });
+      if (v == null && await f.exists()) {
+        AppLog.I.e('store', 'Файл $n повреждён и резервной копии нет');
+      }
+      return v;
     }
 
     final n = await readJson('notes.enc');
@@ -391,9 +432,43 @@ class Store extends ChangeNotifier {
       _saveJson('events.enc', events.map((e) => e.toJson()).toList());
   Future<void> saveComments() =>
       _saveJson('comments.enc', comments.map((c) => c.toJson()).toList());
+  Future<void> saveChat() =>
+      _saveJson('chat.enc', chat.map((c) => c.toJson()).toList());
+
+  /// Загрузка переписки по требованию: отключённый модуль не тратит ресурсы.
+  Future<void> ensureChat() async {
+    if (chatLoaded || key == null) return;
+    chatLoaded = true;
+    try {
+      final v = await readValid<dynamic>(_f('chat.enc'), (b) async {
+        return jsonDecode(utf8.decode(await Crypto.decrypt(key!, b)));
+      });
+      chat = v == null
+          ? []
+          : (v as List)
+              .map((x) => ChatMsg.fromJson(Map<String, dynamic>.from(x as Map)))
+              .toList();
+    } catch (e) {
+      AppLog.I.e('chat', 'Не удалось прочитать чат: $e');
+    }
+  }
+
+  Future<void> sendChat(String room, String text) async {
+    await ensureChat();
+    chat.add(ChatMsg.create(room, settings.profileId, author, text));
+    notifyListeners();
+    await saveChat();
+    schedSync();
+  }
+
   Future<void> saveFolders() =>
       _saveJson('folders.enc', folders.map((f) => f.toJson()).toList());
-  Future<void> saveSettings() => _saveJson('settings.enc', settings.toJson());
+  /// Сохранить настройки; отметка времени нужна, чтобы новые настройки
+  /// выигрывали при синхронизации между устройствами.
+  Future<void> saveSettings({bool touch = true}) {
+    if (touch) settings.settingsUpdatedAt = nowMs();
+    return _saveJson('settings.enc', settings.toJson());
+  }
 
   Future<void> save() async {
     await saveNotes();
