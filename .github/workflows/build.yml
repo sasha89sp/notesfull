@@ -130,6 +130,10 @@ jobs:
           cp variants/whisper/local_tx.dart lib/local_tx.dart
           sed -i 's/^  archive: .*/&\n  whisper_ggml: ^2.9.0/' pubspec.yaml
 
+      - name: Name and icon ASRbox
+        shell: bash
+        run: python3 ci/patch_windows.py
+
       - run: flutter pub get
       - name: Build Windows
         run: flutter build windows --release
