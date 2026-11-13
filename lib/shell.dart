@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'backup.dart';
 import 'calendar_page.dart';
 import 'chat_page.dart';
 import 'desktop.dart';
@@ -47,7 +48,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     s.syncAll();
-    _timer = Timer.periodic(const Duration(minutes: 30), (_) => s.syncAll());
+    Backup.autoIfDue(s);
+    _timer = Timer.periodic(const Duration(minutes: 30), (_) {
+      s.syncAll();
+      Backup.autoIfDue(s);
+    });
     _conn = Connectivity().onConnectivityChanged.listen((r) {
       if (!r.contains(ConnectivityResult.none)) s.schedSync();
     });

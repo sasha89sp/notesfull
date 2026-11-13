@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'comments_view.dart';
 import 'hub.dart';
+import 'md_editor.dart';
 import 'media.dart';
 import 'models.dart';
 import 'store.dart';
 import 'table_screen.dart';
+import 'util.dart';
 import 'widgets.dart';
 
 class EditorScreen extends StatefulWidget {
@@ -22,7 +24,6 @@ class _EditorScreenState extends State<EditorScreen> {
   late final TextEditingController _title;
   final Map<String, TextEditingController> _ctl = {};
   final Map<CheckItem, TextEditingController> _ictl = {};
-  final Set<String> _preview = {};
   Timer? _deb;
   late String _origSig;
   late String _origTitle;
@@ -165,6 +166,18 @@ class _EditorScreenState extends State<EditorScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Событие добавлено в календарь')));
     }
+  }
+
+  /// Ссылка вида [текст](:/id) на другую заметку.
+  void _openNote(String id) {
+    for (final x in s.notes) {
+      if (x.id == id && !x.deleted) {
+        Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => EditorScreen(store: s, note: x)));
+        return;
+      }
+    }
+    toast(context, 'Заметка не найдена');
   }
 
   void _showHistory() {
@@ -341,10 +354,15 @@ class _EditorScreenState extends State<EditorScreen> {
         return FileBlockView(store: s, block: b);
     }
 
-    if (b.type == 'text' && _preview.contains(b.id)) {
-      return b.content.trim().isEmpty
-          ? Text('Пусто', style: TextStyle(color: Pal.secondary(context)))
-          : MdView(b.content);
+    if (b.type == 'text') {
+      return MdTextBlock(
+        key: ValueKey('md${b.id}'),
+        store: s,
+        block: b,
+        controller: _ctlFor(b),
+        onChanged: _touch,
+        onOpenNote: _openNote,
+      );
     }
 
     return TextField(
@@ -472,19 +490,6 @@ class _EditorScreenState extends State<EditorScreen> {
                       fontWeight: FontWeight.w600,
                       color: Pal.secondary(context))),
               const Spacer(),
-              if (b.type == 'text')
-                IconButton(
-                  tooltip: 'Предпросмотр',
-                  icon: Icon(
-                    _preview.contains(b.id)
-                        ? Icons.edit_outlined
-                        : Icons.visibility_outlined,
-                    size: 20,
-                  ),
-                  onPressed: () => setState(() {
-                    if (!_preview.remove(b.id)) _preview.add(b.id);
-                  }),
-                ),
               IconButton(
                 tooltip: 'Удалить блок',
                 icon: const Icon(Icons.delete_outline, size: 20),

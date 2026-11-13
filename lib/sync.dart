@@ -555,6 +555,7 @@ class SyncService {
     if (mode == 'wifi' && !await _onWifi()) return;
 
     final done = s.settings.attDone;
+    final noteIds = {for (final x in s.notes) x.id};
     for (final n in List<Note>.of(s.notes)) {
       tok.check();
       if (n.deleted) continue;
@@ -565,9 +566,8 @@ class SyncService {
       final rm = family ? gdav : dav;
       var dirMade = false;
 
-      for (final b in n.blocks) {
-        final id = b.att;
-        if (id == null) continue;
+      for (final id in n.attachmentIds()) {
+        if (noteIds.contains(id)) continue; // ссылка на заметку, а не на файл
         final tag = '${n.vault}:$id';
         if (s.hasAttachment(id)) {
           if (done.contains(tag)) continue;

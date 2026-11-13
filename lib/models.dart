@@ -320,6 +320,8 @@ class NoteFolder {
       );
 }
 
+final RegExp kAttRef = RegExp(r'\]\(:/([A-Za-z0-9]+)[\s)#]');
+
 class Note {
   String id;
   String title;
@@ -360,6 +362,21 @@ class Note {
   })  : tags = tags ?? [],
         blocks = blocks ?? [],
         history = history ?? [];
+
+  /// Идентификаторы вложений, на которые ссылаются блоки и Markdown-текст (`![](:/id)`).
+  Set<String> attachmentIds() {
+    final out = <String>{};
+    for (final b in blocks) {
+      final a = b.att;
+      if (a != null) out.add(a);
+      if (b.type == 'text' || b.type == 'quote') {
+        for (final r in kAttRef.allMatches(b.content)) {
+          out.add(r.group(1)!);
+        }
+      }
+    }
+    return out;
+  }
 
   factory Note.create(String author, String authorId, String vault) {
     final t = nowMs();
@@ -721,6 +738,15 @@ class Settings {
   String grpPass;
   String grpFolder;
   Map<String, bool> modules; // notes, calendar, pass, chat
+  String bkStorage; // same — текущее хранилище, custom — отдельный WebDAV
+  String bkUrl;
+  String bkUser;
+  String bkPass;
+  String bkFolder;
+  bool bkAuto; // после создания бэкапа загружать его на сервер
+  bool bkDaily; // делать бэкап сам раз в сутки
+  int bkKeep; // сколько последних копий хранить
+  int bkLast;
   int settingsUpdatedAt;
 
   Settings({
@@ -760,6 +786,15 @@ class Settings {
     this.grpPass = '',
     this.grpFolder = '/ASRbox-Group',
     Map<String, bool>? modules,
+    this.bkStorage = 'same',
+    this.bkUrl = '',
+    this.bkUser = '',
+    this.bkPass = '',
+    this.bkFolder = '/ASRbox-Backups',
+    this.bkAuto = false,
+    this.bkDaily = false,
+    this.bkKeep = 7,
+    this.bkLast = 0,
     this.settingsUpdatedAt = 0,
   })  : attDone = attDone ?? [],
         modules = modules ?? {'notes': true, 'calendar': true, 'pass': true, 'chat': true};
@@ -801,6 +836,15 @@ class Settings {
         'grpPass': grpPass,
         'grpFolder': grpFolder,
         'modules': modules,
+        'bkStorage': bkStorage,
+        'bkUrl': bkUrl,
+        'bkUser': bkUser,
+        'bkPass': bkPass,
+        'bkFolder': bkFolder,
+        'bkAuto': bkAuto,
+        'bkDaily': bkDaily,
+        'bkKeep': bkKeep,
+        'bkLast': bkLast,
         'settingsUpdatedAt': settingsUpdatedAt,
       };
 
@@ -846,6 +890,15 @@ class Settings {
         ...d.modules,
         ...((j['modules'] ?? {}) as Map).map((k, v) => MapEntry(k.toString(), v == true)),
       },
+      bkStorage: (j['bkStorage'] ?? 'same') as String,
+      bkUrl: (j['bkUrl'] ?? '') as String,
+      bkUser: (j['bkUser'] ?? '') as String,
+      bkPass: (j['bkPass'] ?? '') as String,
+      bkFolder: (j['bkFolder'] ?? d.bkFolder) as String,
+      bkAuto: (j['bkAuto'] ?? false) as bool,
+      bkDaily: (j['bkDaily'] ?? false) as bool,
+      bkKeep: (j['bkKeep'] ?? 7) as int,
+      bkLast: (j['bkLast'] ?? 0) as int,
       settingsUpdatedAt: (j['settingsUpdatedAt'] ?? 0) as int,
     );
   }

@@ -3,38 +3,121 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart';
 import 'applog.dart';
 import 'models.dart';
+import 'remote.dart';
 import 'store.dart';
+import 'sync.dart';
 
 // =================================================================== бэкап
 
 /// Полный бэкап профиля: zip из зашифрованных файлов (данные остаются под
 /// вашим паролем), включая вложения и хранилище паролей.
 class Backup {
+  static bool _running = false;
+
   static Future<List<int>> create(Store s) async {
     await s.save();
     final base = s.dir.path;
-    final ar = Archive();
+    final files = <String, Uint8List>{};
     final meta = utf8.encode(jsonEncode({
-      'app': 'mysecure_notes',
+      'app': 'asrbox',
       'version': 1,
       'created': DateTime.now().toIso8601String(),
       'name': s.author,
     }));
-    ar.addFile(ArchiveFile('backup.json', meta.length, meta));
+    files['backup.json'] = Uint8List.fromList(meta);
     var count = 0;
     await for (final e in s.dir.list(recursive: true, followLinks: false)) {
       if (e is! File) continue;
       var rel = e.path.substring(base.length).replaceAll('\\', '/');
       if (rel.startsWith('/')) rel = rel.substring(1);
-      if (rel.endsWith('.tmp') || rel == 'applog.txt') continue;
-      final bytes = await e.readAsBytes();
-      ar.addFile(ArchiveFile(rel, bytes.length, bytes));
+      if (rel.endsWith('.tmp') || rel.endsWith('.bak') || rel == 'applog.txt') continue;
+      files[rel] = await e.readAsBytes();
       count++;
+      if (count % 50 == 0) await Future<void>.delayed(Duration.zero);
     }
     AppLog.I.i('backup', 'Бэкап: файлов $count');
-    return ZipEncoder().encode(ar)!;
+    // упаковка в отдельном потоке, чтобы интерфейс не подвисал
+    return compute(_zipIso, files);
+  }
+
+  // ---------------------------------------------------------- WebDAV
+
+  /// Куда складывать бэкапы: на текущее хранилище или на отдельный сервер.
+  static (Remote, String) target(Store s) {
+    final st = s.settings;
+    final who = st.userId.isEmpty ? 'profile' : st.userId;
+    if (st.bkStorage == 'custom' && st.bkUrl.isNotEmpty) {
+      final f = st.bkFolder.trim().isEmpty ? '/ASRbox-Backups' : st.bkFolder.trim();
+      return (Dav(st.bkUrl, st.bkUser, st.bkPass), '${f.startsWith('/') ? f : '/$f'}/$who');
+    }
+    final r = SyncService.remoteOf(st);
+    return (r, '${SyncService.root}/backups/$who');
+  }
+
+  static bool canUpload(Settings st) =>
+      st.bkStorage == 'custom' ? st.bkUrl.isNotEmpty && st.bkUser.isNotEmpty : st.syncConfigured;
+
+  static String _stamp() {
+    final d = DateTime.now();
+    String t(int x) => x.toString().padLeft(2, '0');
+    return '${d.year}${t(d.month)}${t(d.day)}_${t(d.hour)}${t(d.minute)}${t(d.second)}';
+  }
+
+  /// Загрузка готового бэкапа на сервер; старые копии сверх лимита удаляются.
+  /// Возвращает имя файла.
+  static Future<String> upload(Store s, List<int> bytes) async {
+    final st = s.settings;
+    if (!canUpload(st)) throw 'Не настроен сервер для бэкапов';
+    final (r, dir) = target(s);
+    await r.mkcolAll(dir);
+    final name = 'asrbox_${_stamp()}.zip';
+    await r.putAtomic('$dir/$name', bytes);
+    st.bkLast = nowMs();
+    await s.saveSettings(touch: false);
+    final keep = st.bkKeep < 1 ? 1 : st.bkKeep;
+    try {
+      final names = (await r.list(dir)).where((n) => n.startsWith('asrbox_') && n.endsWith('.zip')).toList()
+        ..sort();
+      for (final n in names.take(names.length > keep ? names.length - keep : 0)) {
+        await r.delete('$dir/$n');
+      }
+    } catch (e) {
+      AppLog.I.w('backup', 'Очистка старых копий: $e');
+    }
+    AppLog.I.i('backup', 'Бэкап загружен: $name (${bytes.length} байт)');
+    return name;
+  }
+
+  /// Создать и сразу загрузить (без сохранения файла на устройство).
+  static Future<String> createAndUpload(Store s) async => upload(s, await create(s));
+
+  static Future<List<String>> listRemote(Store s) async {
+    final (r, dir) = target(s);
+    final l = (await r.list(dir)).where((n) => n.endsWith('.zip')).toList()..sort();
+    return l.reversed.toList();
+  }
+
+  static Future<List<int>?> downloadRemote(Store s, String name) async {
+    final (r, dir) = target(s);
+    return r.get('$dir/$name');
+  }
+
+  /// Раз в сутки делает бэкап и загружает его, если включено «автоматически».
+  static Future<void> autoIfDue(Store s) async {
+    final st = s.settings;
+    if (_running || !st.bkAuto || !st.bkDaily || s.key == null || !canUpload(st)) return;
+    if (nowMs() - st.bkLast < const Duration(hours: 24).inMilliseconds) return;
+    _running = true;
+    try {
+      await createAndUpload(s);
+    } catch (e) {
+      AppLog.I.e('backup', 'Автобэкап не удался: $e');
+    } finally {
+      _running = false;
+    }
   }
 
   static bool isBackup(List<int> bytes) {
@@ -97,8 +180,25 @@ class JexNote {
   String id, title, body, parent;
   int created, updated;
   List<String> tags;
+  bool isTodo;
+  int todoDue; // мс, 0 — нет срока
+  bool todoDone;
+  int markup; // 1 — Markdown, 2 — HTML
+  String sourceUrl;
+  double lat, lon;
+  bool deleted;
+  bool conflict;
   JexNote(this.id, this.title, this.body, this.parent, this.created,
-      this.updated, this.tags);
+      this.updated, this.tags,
+      {this.isTodo = false,
+      this.todoDue = 0,
+      this.todoDone = false,
+      this.markup = 1,
+      this.sourceUrl = '',
+      this.lat = 0,
+      this.lon = 0,
+      this.deleted = false,
+      this.conflict = false});
 }
 
 class JexParsed {
@@ -121,7 +221,27 @@ class Jex {
 
   static int _parseTime(String? v) {
     if (v == null || v.isEmpty) return nowMs();
+    if (RegExp(r'^\d+$').hasMatch(v)) {
+      final n = int.parse(v);
+      return n == 0 ? nowMs() : n;
+    }
     return DateTime.tryParse(v)?.millisecondsSinceEpoch ?? nowMs();
+  }
+
+  /// Срок задачи: 0 и пустое значение — «нет».
+  static int _parseDue(String? v) {
+    if (v == null || v.isEmpty || v == '0') return 0;
+    if (RegExp(r'^\d+$').hasMatch(v)) return int.parse(v);
+    return DateTime.tryParse(v)?.millisecondsSinceEpoch ?? 0;
+  }
+
+  static double _d(String? v) => double.tryParse(v ?? '') ?? 0;
+
+  /// Время: предпочитаем «пользовательское» (user_created_time), как делает Joplin.
+  static int _pick(Map<String, String> p, String user, String sys) {
+    final u = p[user];
+    if (u != null && u.isNotEmpty && u != '0') return _parseTime(u);
+    return _parseTime(p[sys]);
   }
 
   static const Map<String, String> _mimes = {
@@ -158,7 +278,8 @@ class Jex {
   }
 
   /// Блоки заметки → Markdown. [resId] выдаёт ссылку на вложение по id вложения.
-  static String bodyOf(Note n, String? Function(Block b) resId) {
+  static String bodyOf(Note n, String? Function(Block b) resId,
+      {String? Function(String attId)? refId}) {
     final parts = <String>[];
     for (final b in n.blocks) {
       switch (b.type) {
@@ -190,10 +311,18 @@ class Jex {
           }
           break;
         default:
-          parts.add(b.content);
+          parts.add(refId == null ? b.content : _rewriteRefs(b.content, refId));
       }
     }
     return parts.where((p) => p.trim().isNotEmpty).join('\n\n');
+  }
+
+  /// Ссылки `:/id` на вложения в тексте → идентификаторы ресурсов Joplin.
+  static String _rewriteRefs(String text, String? Function(String) refId) {
+    return text.replaceAllMapped(RegExp(r':/([A-Za-z0-9]+)'), (m) {
+      final r = refId(m.group(1)!);
+      return r == null ? m.group(0)! : ':/$r';
+    });
   }
 
   static String _props(Map<String, String> p) =>
@@ -241,6 +370,9 @@ class Jex {
         final att = b.att;
         if (att == null || !attBytes.containsKey(att)) return null;
         return resIds.putIfAbsent(att, () => _hex32());
+      }, refId: (id) {
+        if (!attBytes.containsKey(id)) return null;
+        return resIds.putIfAbsent(id, () => _hex32());
       });
 
       for (final e in resIds.entries) {
@@ -250,7 +382,18 @@ class Jex {
         for (final b in n.blocks) {
           if (b.att == e.key) src = b;
         }
-        final name = (src?.meta['name'] ?? 'file').toString();
+        var name = (src?.meta['name'] ?? '').toString();
+        if (name.isEmpty) {
+          // вложение из Markdown-текста: имя берём из ссылки
+          for (final b in n.blocks) {
+            final mm = RegExp('!?\\[([^\\]]*)\\]\\(:/${RegExp.escape(e.key)}').firstMatch(b.content);
+            if (mm != null && (mm.group(1) ?? '').isNotEmpty) {
+              name = mm.group(1)!;
+              break;
+            }
+          }
+        }
+        if (name.isEmpty) name = 'file';
         var ext = _ext(name);
         if (ext.isEmpty && src?.meta['ext'] != null) ext = src!.meta['ext'].toString();
         final mime = _mimes[ext] ?? 'application/octet-stream';
@@ -411,8 +554,24 @@ class Jex {
       final id = p['id'] ?? name.substring(0, name.length - 3);
       switch (type) {
         case '1':
-          res.notes.add(JexNote(id, title, body, p['parent_id'] ?? '',
-              _parseTime(p['created_time']), _parseTime(p['updated_time']), []));
+          res.notes.add(JexNote(
+            id,
+            title,
+            body,
+            p['parent_id'] ?? '',
+            _pick(p, 'user_created_time', 'created_time'),
+            _pick(p, 'user_updated_time', 'updated_time'),
+            [],
+            isTodo: p['is_todo'] == '1',
+            todoDue: _parseDue(p['todo_due']),
+            todoDone: _parseDue(p['todo_completed']) > 0,
+            markup: int.tryParse(p['markup_language'] ?? '1') ?? 1,
+            sourceUrl: p['source_url'] ?? '',
+            lat: _d(p['latitude']),
+            lon: _d(p['longitude']),
+            deleted: _parseDue(p['deleted_time']) > 0,
+            conflict: p['is_conflict'] == '1',
+          ));
           break;
         case '2':
           res.folders.add(JexFolder(id, title, p['parent_id'] ?? ''));
@@ -495,11 +654,71 @@ class Jex {
     return blocks;
   }
 
+  /// HTML-заметки Joplin (markup_language = 2) → Markdown, чтобы форматирование сохранилось.
+  static String htmlToMd(String html) {
+    var s = html.replaceAll('\r\n', '\n');
+    String tag(String name, String open, [String? close]) {
+      return s.replaceAllMapped(
+          RegExp('<$name(?:\\s[^>]*)?>(.*?)</$name>', caseSensitive: false, dotAll: true),
+          (m) => '$open${m.group(1)}${close ?? open}');
+    }
+
+    s = s.replaceAll(RegExp(r'<!--.*?-->', dotAll: true), '');
+    s = s.replaceAllMapped(
+        RegExp(r'<img\b[^>]*?src="([^"]*)"[^>]*?(?:alt="([^"]*)")?[^>]*>', caseSensitive: false),
+        (m) => '![${m.group(2) ?? ''}](${m.group(1)})');
+    s = s.replaceAllMapped(
+        RegExp(r'<a\b[^>]*?href="([^"]*)"[^>]*>(.*?)</a>', caseSensitive: false, dotAll: true),
+        (m) => '[${m.group(2)}](${m.group(1)})');
+    for (var i = 1; i <= 6; i++) {
+      s = s.replaceAllMapped(
+          RegExp('<h$i(?:\\s[^>]*)?>(.*?)</h$i>', caseSensitive: false, dotAll: true),
+          (m) => '\n\n${'#' * i} ${m.group(1)}\n\n');
+    }
+    s = tag('strong', '**');
+    s = tag('b', '**');
+    s = tag('em', '*');
+    s = tag('i', '*');
+    s = tag('del', '~~');
+    s = tag('s', '~~');
+    s = tag('u', '++');
+    s = tag('mark', '==');
+    s = tag('code', '`');
+    s = s.replaceAllMapped(
+        RegExp(r'<pre(?:\s[^>]*)?>(.*?)</pre>', caseSensitive: false, dotAll: true),
+        (m) => '\n```\n${m.group(1)!.replaceAll(RegExp(r'</?code[^>]*>'), '')}\n```\n');
+    s = s.replaceAllMapped(
+        RegExp(r'<li(?:\s[^>]*)?>(.*?)</li>', caseSensitive: false, dotAll: true),
+        (m) => '\n- ${m.group(1)!.trim()}');
+    s = s.replaceAllMapped(
+        RegExp(r'<blockquote(?:\s[^>]*)?>(.*?)</blockquote>', caseSensitive: false, dotAll: true),
+        (m) => '\n${m.group(1)!.trim().split('\n').map((l) => '> $l').join('\n')}\n');
+    s = s.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
+    s = s.replaceAll(RegExp(r'<hr\s*/?>', caseSensitive: false), '\n\n---\n\n');
+    s = s.replaceAll(RegExp(r'</(p|div|ul|ol|table|tr)>', caseSensitive: false), '\n\n');
+    s = s.replaceAll(RegExp(r'</t[dh]>', caseSensitive: false), ' | ');
+    s = s.replaceAll(RegExp(r'<[^>]+>'), '');
+    s = s
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&amp;', '&');
+    return s.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+  }
+
+  static final RegExp _idRef = RegExp(r':/([0-9a-fA-F]{32})');
+
   /// Импорт в хранилище. Заметки с уже существующим id пропускаются (повторный импорт
-  /// не создаёт дублей). Возвращает текст итога.
-  static Future<String> importInto(Store s, List<int> tarBytes) async {
-    final data = parse(tarBytes);
-    var nNew = 0, nSkip = 0, fNew = 0, att = 0;
+  /// не создаёт дублей). Вся разметка Joplin сохраняется как Markdown-текст, вложения
+  /// записываются под их прежними идентификаторами, поэтому ссылки `:/id` остаются рабочими.
+  /// Возвращает текст итога.
+  static Future<String> importInto(Store s, List<int> tarBytes,
+      {void Function(String)? progress}) async {
+    progress?.call('Чтение архива…');
+    final data = await compute(_parseIso, tarBytes);
+    var nNew = 0, nSkip = 0, fNew = 0, att = 0, tasks = 0, nDel = 0;
 
     final folderIds = <String>{for (final f in s.folders) f.id};
     for (final f in data.folders) {
@@ -518,26 +737,46 @@ class Jex {
       if (f.parent.isNotEmpty && !folderIds.contains(f.parent)) f.parent = '';
     }
 
-    final attCache = <String, Block?>{};
-    Future<void> preload() async {
-      for (final r in data.resources.values) {
-        final isImg = r.mime.startsWith('image/');
-        final id = await s.addAttachment(r.bytes);
-        attCache[r.id.toLowerCase()] = Block(
-          type: isImg ? 'image' : 'file',
-          meta: {'att': id, 'name': r.name, 'size': r.bytes.length},
-        );
+    var i = 0;
+    final total = data.resources.length;
+    for (final r in data.resources.values) {
+      final id = r.id.toLowerCase();
+      if (!s.hasAttachment(id)) {
+        await s.writeAttachment(id, r.bytes);
         att++;
       }
+      i++;
+      if (i % 5 == 0) progress?.call('Вложения: $i из $total');
+      if (i % 20 == 0) await Future<void>.delayed(Duration.zero);
     }
 
-    await preload();
     final known = {for (final n in s.notes) n.id};
+    var k = 0;
     for (final jn in data.notes) {
+      k++;
+      if (k % 25 == 0) {
+        progress?.call('Заметки: $k из ${data.notes.length}');
+        await Future<void>.delayed(Duration.zero);
+      }
+      if (jn.deleted) {
+        nDel++;
+        continue;
+      }
       if (known.contains(jn.id)) {
         nSkip++;
         continue;
       }
+      var body = jn.markup == 2 ? htmlToMd(jn.body) : jn.body;
+      body = body.replaceAllMapped(_idRef, (m) => ':/${m.group(1)!.toLowerCase()}');
+      final extra = <String>[];
+      if (jn.sourceUrl.isNotEmpty) extra.add('Источник: ${jn.sourceUrl}');
+      if (jn.lat != 0 || jn.lon != 0) extra.add('Координаты: ${jn.lat}, ${jn.lon}');
+      if (extra.isNotEmpty) body = '$body\n\n---\n${extra.join('  \n')}';
+
+      final tags = [...jn.tags];
+      if (jn.isTodo) tags.add(jn.todoDone ? 'выполнено' : 'задача');
+      if (jn.conflict) tags.add('конфликт');
+
       final n = Note(
         id: jn.id,
         title: jn.title,
@@ -548,30 +787,56 @@ class Jex {
         createdAt: jn.created,
         updatedAt: nowMs(),
         folder: folderIds.contains(jn.parent) ? jn.parent : '',
-        tags: jn.tags,
-        blocks: toBlocks(jn.body, (rid) => attCache[rid]?.copy()),
+        tags: tags,
+        blocks: [Block(type: 'text', content: body)],
       );
       s.notes.add(n);
       nNew++;
+      if (jn.isTodo && jn.todoDue > 0) {
+        s.events.add(CalEvent(
+          id: newId(),
+          title: jn.title.isEmpty ? 'Задача' : jn.title,
+          start: jn.todoDue,
+          end: jn.todoDue + const Duration(hours: 1).inMilliseconds,
+          isTask: true,
+          done: jn.todoDone,
+          remind: jn.todoDone ? -1 : 15,
+          noteId: jn.id,
+          updatedAt: nowMs(),
+        ));
+        tasks++;
+      }
     }
+    progress?.call('Сохранение…');
     s.foldersChanged();
+    if (tasks > 0) s.eventsChanged();
     s.changed();
-    AppLog.I.i('jex', 'Импорт Joplin: заметок $nNew, папок $fNew, пропущено $nSkip');
-    return 'Заметок: $nNew, папок: $fNew, вложений: $att'
-        '${nSkip > 0 ? ', уже были: $nSkip' : ''}';
+    AppLog.I.i('jex',
+        'Импорт Joplin: заметок $nNew, папок $fNew, вложений $att, задач $tasks, пропущено $nSkip');
+    return 'заметок: $nNew, папок: $fNew, вложений: $att'
+        '${tasks > 0 ? ', задач в календаре: $tasks' : ''}'
+        '${nSkip > 0 ? ', уже были: $nSkip' : ''}'
+        '${nDel > 0 ? ', из корзины Joplin пропущено: $nDel' : ''}';
   }
 
   static Future<List<int>> exportFrom(Store s) async {
     final notes = s.notes.where((n) => !n.deleted).toList();
     final att = <String, List<int>>{};
     for (final n in notes) {
-      for (final b in n.blocks) {
-        final id = b.att;
-        if (id == null || att.containsKey(id)) continue;
+      for (final id in n.attachmentIds()) {
+        if (att.containsKey(id)) continue;
         final bytes = await s.readAttachment(id);
         if (bytes != null) att[id] = Uint8List.fromList(bytes);
       }
     }
     return export(s.folders.where((f) => !f.deleted).toList(), notes, att);
   }
+}
+
+JexParsed _parseIso(List<int> bytes) => Jex.parse(bytes);
+
+List<int> _zipIso(Map<String, Uint8List> files) {
+  final ar = Archive();
+  files.forEach((name, bytes) => ar.addFile(ArchiveFile(name, bytes.length, bytes)));
+  return ZipEncoder().encode(ar)!;
 }

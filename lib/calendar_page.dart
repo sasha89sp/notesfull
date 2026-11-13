@@ -23,20 +23,34 @@ class _CalendarPageState extends State<CalendarPage> {
 
   DateTime _d(DateTime x) => DateTime(x.year, x.month, x.day);
 
-  List<CalEvent> _on(DateTime day) {
-    final d0 = _d(day);
-    final d1 = d0.add(const Duration(days: 1));
-    final out = s.events.where((e) {
-      if (e.deleted) return false;
+  // Индекс «день → события» строится один раз за перерисовку (а не на каждую ячейку).
+  Map<int, List<CalEvent>> _idx = {};
+
+  int _key(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
+
+  Map<int, List<CalEvent>> _buildIndex() {
+    final m = <int, List<CalEvent>>{};
+    for (final e in s.events) {
+      if (e.deleted) continue;
       final st = e.startDt;
       final en = e.isTask ? e.startDt : e.endDt;
       final sd = _d(st);
-      final ed = e.allDay || e.isTask ? _d(en) : (en.isAfter(st) ? _d(en.subtract(const Duration(milliseconds: 1))) : sd);
-      return !sd.isAfter(d0) && !ed.isBefore(d0) && sd.isBefore(d1);
-    }).toList()
-      ..sort((a, b) => a.start.compareTo(b.start));
-    return out;
+      final ed = e.allDay || e.isTask
+          ? _d(en)
+          : (en.isAfter(st) ? _d(en.subtract(const Duration(milliseconds: 1))) : sd);
+      var d = sd;
+      for (var i = 0; i < 400 && !d.isAfter(ed); i++) {
+        m.putIfAbsent(_key(d), () => []).add(e);
+        d = DateTime(d.year, d.month, d.day + 1);
+      }
+    }
+    for (final l in m.values) {
+      if (l.length > 1) l.sort((a, b) => a.start.compareTo(b.start));
+    }
+    return m;
   }
+
+  List<CalEvent> _on(DateTime day) => _idx[_key(day)] ?? const <CalEvent>[];
 
   void _open(CalEvent e, {bool isNew = false}) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
@@ -287,6 +301,7 @@ class _CalendarPageState extends State<CalendarPage> {
     return AnimatedBuilder(
       animation: s,
       builder: (context, _) {
+        _idx = _buildIndex();
         Widget body;
         switch (_view) {
           case 'week':

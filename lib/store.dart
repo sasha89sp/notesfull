@@ -673,9 +673,17 @@ class Store extends ChangeNotifier {
     notifyListeners();
   }
 
+  int _lastProgressNotify = 0;
+
+  /// Ход синхронизации. Интерфейс перерисовывается не чаще ~5 раз в секунду:
+  /// иначе при тысячах событий календаря каждое сообщение пересобирает все экраны
+  /// и приложение «зависает».
   void setProgress(String text, [double? frac]) {
     progressText = text;
     progress = frac;
+    final t = nowMs();
+    if (t - _lastProgressNotify < 200) return;
+    _lastProgressNotify = t;
     notifyListeners();
   }
 

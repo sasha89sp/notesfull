@@ -67,6 +67,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'gUser': TextEditingController(text: st.grpUser),
       'gPass': TextEditingController(text: st.grpPass),
       'gFolder': TextEditingController(text: st.grpFolder),
+      'bkUrl': TextEditingController(text: st.bkUrl),
+      'bkUser': TextEditingController(text: st.bkUser),
+      'bkPass': TextEditingController(text: st.bkPass),
+      'bkFolder': TextEditingController(text: st.bkFolder),
     };
     _syncSig = '${st.url}|${st.user}|${st.pass}';
     s.bioAvailable().then((v) {
@@ -102,6 +106,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     st.grpUser = c['gUser']!.text.trim();
     st.grpPass = c['gPass']!.text;
     st.grpFolder = c['gFolder']!.text.trim();
+    st.bkUrl = c['bkUrl']!.text.trim();
+    st.bkUser = c['bkUser']!.text.trim();
+    st.bkPass = c['bkPass']!.text;
+    st.bkFolder = c['bkFolder']!.text.trim();
     final l = int.tryParse(c['lock']!.text.trim()) ?? 90;
     st.autoLock = l.clamp(15, 3600).toInt();
   }
@@ -318,23 +326,145 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => gStatus = 'Отключено');
   }
 
+  /// Окно с ходом долгой операции. Возвращает функцию «закрыть».
+  VoidCallback _progress(ValueNotifier<String> text) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(children: [
+            const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
+            const SizedBox(width: 16),
+            Expanded(
+              child: ValueListenableBuilder<String>(
+                valueListenable: text,
+                builder: (_, v, __) => Text(v),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+    return () {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    };
+  }
+
   Future<void> _backup() async {
+    _apply();
+    final note = ValueNotifier<String>('Создаю бэкап…');
+    final close = _progress(note);
+    List<int> bytes;
     try {
-      final bytes = await Backup.create(s);
-      final d = DateTime.now();
-      final name = 'mysecure_backup_${d.year}${two(d.month)}${two(d.day)}.zip';
-      if (await saveBytes(name, bytes) && mounted) toast(context, 'Бэкап сохранён');
+      bytes = await Backup.create(s);
     } catch (e, stk) {
+      close();
       AppLog.I.e('backup', '$e', stk);
       if (mounted) toast(context, 'Ошибка бэкапа: $e');
+      return;
     }
+    close();
+    final d = DateTime.now();
+    final name = 'asrbox_backup_${d.year}${two(d.month)}${two(d.day)}.zip';
+    var saved = false;
+    try {
+      saved = await saveBytes(name, bytes);
+    } catch (e, stk) {
+      AppLog.I.e('backup', '$e', stk);
+      if (mounted) toast(context, 'Не удалось сохранить файл: $e');
+    }
+    // галочка включена — загрузка на сервер идёт сама, без вопросов
+    if (st.bkAuto) {
+      await _upload(bytes, savedLocal: saved);
+    } else if (saved && mounted) {
+      toast(context, 'Бэкап сохранён');
+    }
+  }
+
+  Future<void> _upload(List<int>? bytes, {bool savedLocal = false}) async {
+    if (!Backup.canUpload(st)) {
+      if (mounted) toast(context, 'Укажите сервер для бэкапов (или подключите WebDAV)');
+      return;
+    }
+    final note = ValueNotifier<String>('Загружаю бэкап на сервер…');
+    final close = _progress(note);
+    try {
+      final name = bytes == null
+          ? await Backup.createAndUpload(s)
+          : await Backup.upload(s, bytes);
+      close();
+      if (mounted) {
+        toast(context, '${savedLocal ? 'Бэкап сохранён. ' : ''}Загружен на сервер: $name');
+        setState(() {});
+      }
+    } catch (e, stk) {
+      close();
+      AppLog.I.e('backup', '$e', stk);
+      if (mounted) toast(context, 'Загрузка на сервер не удалась: $e');
+    } finally {
+      }
+  }
+
+  Future<void> _remoteBackups() async {
+    if (!Backup.canUpload(st)) {
+      toast(context, 'Укажите сервер для бэкапов (или подключите WebDAV)');
+      return;
+    }
+    List<String> names;
+    try {
+      names = await Backup.listRemote(s);
+    } catch (e) {
+      if (mounted) toast(context, 'Не удалось получить список: $e');
+      return;
+    }
+    if (!mounted) return;
+    if (names.isEmpty) {
+      toast(context, 'На сервере бэкапов пока нет');
+      return;
+    }
+    final pick = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Бэкапы на сервере'),
+        children: [
+          for (final n in names)
+            ListTile(
+              leading: const Icon(Icons.archive_outlined),
+              title: Text(n),
+              onTap: () => Navigator.pop(ctx, n),
+            ),
+        ],
+      ),
+    );
+    if (pick == null || !mounted) return;
+    final note = ValueNotifier<String>('Скачиваю бэкап…');
+    final close = _progress(note);
+    List<int>? bytes;
+    try {
+      bytes = await Backup.downloadRemote(s, pick);
+    } catch (e) {
+      close();
+      if (mounted) toast(context, 'Не удалось скачать: $e');
+      return;
+    }
+    close();
+    if (bytes == null) {
+      if (mounted) toast(context, 'Файл не найден на сервере');
+      return;
+    }
+    await _restoreBytes(bytes);
   }
 
   Future<void> _restore() async {
     final r = await FilePicker.platform
         .pickFiles(type: FileType.custom, allowedExtensions: ['zip'], withData: true);
     if (r == null || r.files.isEmpty || r.files.first.bytes == null) return;
-    final bytes = r.files.first.bytes!;
+    await _restoreBytes(r.files.first.bytes!);
+  }
+
+  Future<void> _restoreBytes(List<int> bytes) async {
     if (!Backup.isBackup(bytes)) {
       if (mounted) toast(context, 'Это не бэкап приложения');
       return;
@@ -356,16 +486,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _jexImport() async {
-    final r = await FilePicker.platform
-        .pickFiles(type: FileType.custom, allowedExtensions: ['jex'], withData: true);
-    if (r == null || r.files.isEmpty || r.files.first.bytes == null) return;
+    FilePickerResult? r;
     try {
-      final msg = await Jex.importInto(s, r.files.first.bytes!);
-      if (mounted) toast(context, 'Импорт Joplin: $msg');
+      // любые файлы: Android не знает тип .jex и не даёт выбрать файл с фильтром по расширению
+      r = await FilePicker.platform.pickFiles(type: FileType.any, withData: false);
     } catch (e, stk) {
       AppLog.I.e('jex', '$e', stk);
-      if (mounted) toast(context, 'Не удалось прочитать JEX: $e');
+      if (mounted) toast(context, 'Не удалось открыть выбор файла: $e');
+      return;
     }
+    if (r == null || r.files.isEmpty) return;
+    final f = r.files.first;
+    final low = f.name.toLowerCase();
+    if (!low.endsWith('.jex') && !low.endsWith('.tar')) {
+      if (mounted) toast(context, 'Нужен файл экспорта Joplin (.jex), выбран «${f.name}»');
+      return;
+    }
+    List<int>? bytes = f.bytes;
+    if (bytes == null && f.path != null) {
+      try {
+        bytes = await File(f.path!).readAsBytes();
+      } catch (e) {
+        if (mounted) toast(context, 'Не удалось прочитать файл: $e');
+        return;
+      }
+    }
+    if (bytes == null) {
+      if (mounted) toast(context, 'Не удалось получить содержимое файла');
+      return;
+    }
+    final note = ValueNotifier<String>('Импорт из Joplin…');
+    final close = _progress(note);
+    try {
+      final msg = await Jex.importInto(s, bytes, progress: (t) => note.value = t);
+      close();
+      if (mounted) toast(context, 'Импорт Joplin: $msg');
+    } catch (e, stk) {
+      close();
+      AppLog.I.e('jex', '$e', stk);
+      if (mounted) toast(context, 'Не удалось импортировать JEX: $e');
+    } finally {
+      }
   }
 
   Future<void> _jexExport() async {
@@ -691,11 +852,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Wrap(spacing: 10, runSpacing: 8, children: [
             FilledButton(onPressed: _backup, child: const Text('Полный бэкап')),
             OutlinedButton(onPressed: _restore, child: const Text('Восстановить')),
+            OutlinedButton(
+                onPressed: () => _upload(null), child: const Text('Бэкап на сервер сейчас')),
+            OutlinedButton(onPressed: _remoteBackups, child: const Text('Бэкапы на сервере')),
             OutlinedButton(onPressed: _jexImport, child: const Text('Импорт из Joplin')),
             OutlinedButton(onPressed: _jexExport, child: const Text('Экспорт в Joplin')),
             OutlinedButton(onPressed: _icsImport, child: const Text('Импорт календаря')),
             OutlinedButton(onPressed: _icsExport, child: const Text('Экспорт календаря')),
           ]),
+          const SizedBox(height: 12),
+          const Text('Бэкап на WebDAV', style: TextStyle(fontWeight: FontWeight.w600)),
+          const Hint('Бэкап зашифрован вашим паролем, на сервер он уходит в том же виде. '
+              'Можно использовать то хранилище, куда вы вошли, или отдельный WebDAV только для бэкапов.'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('После создания бэкапа загружать на сервер'),
+            subtitle: const Text('Всё происходит автоматически, без лишних действий',
+                style: TextStyle(fontSize: 12)),
+            value: st.bkAuto,
+            onChanged: (v) {
+              setState(() => st.bkAuto = v);
+              _autoNow();
+            },
+          ),
+          if (st.bkAuto)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Делать бэкап сам раз в сутки'),
+              subtitle: const Text('При запуске и во время работы приложения',
+                  style: TextStyle(fontSize: 12)),
+              value: st.bkDaily,
+              onChanged: (v) {
+                setState(() => st.bkDaily = v);
+                _autoNow();
+              },
+            ),
+          _drop('Сервер для бэкапов', st.bkStorage,
+              const {'same': 'Текущий WebDAV', 'custom': 'Другой WebDAV'},
+              (v) => st.bkStorage = v),
+          if (st.bkStorage == 'custom') ...[
+            _field('bkUrl', 'Адрес WebDAV для бэкапов'),
+            _field('bkUser', 'Логин'),
+            _field('bkPass', 'Пароль приложения', obscure: true),
+            _field('bkFolder', 'Папка на сервере'),
+          ],
+          _drop('Хранить копий', '${st.bkKeep}',
+              const {'3': '3', '7': '7', '14': '14', '30': '30'},
+              (v) => st.bkKeep = int.tryParse(v) ?? 7),
+          if (st.bkLast > 0)
+            Hint('Последняя загрузка: ${fmtDate(st.bkLast)}'),
           const Hint('Импорт и экспорт паролей (CSV и другие форматы) находятся во вкладке «Пароли», меню ⋮.'),
 
           const SectionTitle('Отладка и диагностика'),
