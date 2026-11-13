@@ -12,6 +12,7 @@ import 'accounts.dart';
 import 'applog.dart';
 import 'crypto.dart';
 import 'google.dart';
+import 'groups.dart';
 import 'models.dart';
 import 'sync.dart';
 import 'synchist.dart';
@@ -63,8 +64,6 @@ class Store extends ChangeNotifier {
   CancelToken? _tok;
   VoidCallback? onEventsChanged;
 
-  SecretKey? _fk;
-  String _fkPass = '';
   Future<void> _chain = Future.value();
   Timer? _debounce;
   final FlutterSecureStorage _ss = const FlutterSecureStorage();
@@ -240,10 +239,48 @@ class Store extends ChangeNotifier {
     folders = [];
     history = [];
     settings = Settings();
-    _fk = null;
     status = '';
     wantPicker = picker;
     AppLog.I.i('profile', 'Выход из профиля');
+    notifyListeners();
+  }
+
+  /// Полный сброс профиля на этом устройстве: данные, ключи в защищённом хранилище и
+  /// запись о профиле. Данные в облаке не затрагиваются.
+  Future<void> resetProfile() async {
+    final p = profileById(curId);
+    final id = curId;
+    final d = dir;
+    final legacyRoot = p == null || p.dir.isEmpty;
+    for (final k in ['rpw', 'k', 'sk']) {
+      try {
+        await _ss.delete(key: _kid(k, id));
+      } catch (_) {}
+    }
+    await logout(picker: true);
+    try {
+      if (!legacyRoot) {
+        if (await d.exists()) await d.delete(recursive: true);
+      } else {
+        await for (final e in d.list(followLinks: false)) {
+          if (e is File) {
+            final n = e.uri.pathSegments.last;
+            if (n.endsWith('.enc') || n.endsWith('.bak') || n.endsWith('.tmp') ||
+                n == 'vault.json' || n == 'passvault.json') {
+              await e.delete();
+            }
+          } else if (e is Directory && e.uri.pathSegments.contains('attachments')) {
+            await e.delete(recursive: true);
+          }
+        }
+      }
+    } catch (e) {
+      AppLog.I.e('profile', 'Сброс: не удалось удалить файлы: $e');
+    }
+    profiles.removeWhere((x) => x.id == id);
+    curId = profiles.isEmpty ? '' : profiles.first.id;
+    await _saveIndex();
+    AppLog.I.i('profile', 'Профиль сброшен');
     notifyListeners();
   }
 
@@ -338,6 +375,7 @@ class Store extends ChangeNotifier {
       await saveSettings();
     }
     AppLog.I.verbose = settings.verboseLog;
+    await Groups.migrateLegacy(this);
     final h = await readJson('synchist.enc');
     history = h == null
         ? []
@@ -580,6 +618,25 @@ class Store extends ChangeNotifier {
     changed();
   }
 
+  // ------------------------------------------------------------ избранное и закрепление
+
+  bool isFolderFav(String id) => settings.favorites.contains(id);
+  bool isPinned(String id) => settings.pinned.contains(id);
+
+  void toggleFolderFav(String id) {
+    if (!settings.favorites.remove(id)) settings.favorites.add(id);
+    saveSettings();
+    notifyListeners();
+    schedSync();
+  }
+
+  void togglePin(String id) {
+    if (!settings.pinned.remove(id)) settings.pinned.add(id);
+    saveSettings();
+    notifyListeners();
+    schedSync();
+  }
+
   void foldersChanged() {
     notifyListeners();
     saveFolders();
@@ -612,18 +669,6 @@ class Store extends ChangeNotifier {
       (n.authorId.isNotEmpty && n.authorId == settings.profileId) ||
       (n.authorId.isEmpty && n.author == author);
 
-  Future<SecretKey?> familyKey() async {
-    if (settings.famKey.isNotEmpty) {
-      return SecretKey(base64Decode(settings.famKey));
-    }
-    final p = settings.familyPass;
-    if (p.isEmpty) return null;
-    if (_fk == null || _fkPass != p) {
-      _fk = await Crypto.deriveFixed(p, 'mysecure-family-v1');
-      _fkPass = p;
-    }
-    return _fk;
-  }
 
   // ------------------------------------------------------------ вложения
 

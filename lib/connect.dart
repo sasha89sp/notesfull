@@ -3,6 +3,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'accounts.dart';
 import 'applog.dart';
+import 'gdrive.dart';
+import 'models.dart';
 import 'remote.dart';
 import 'store.dart';
 import 'sync.dart';
@@ -23,7 +25,12 @@ class ConnectScreen extends StatefulWidget {
 
 class _ConnectScreenState extends State<ConnectScreen> {
   int _step = 0;
-  bool _local = false;
+  String _kind = 'webdav'; // webdav | gdrive | local
+  bool get _local => _kind == 'local';
+  bool get _gd => _kind == 'gdrive';
+  final _gId = TextEditingController();
+  final _gSecret = TextEditingController();
+  String _gdToken = '';
   final _url = TextEditingController(text: 'https://webdav.cloud.mail.ru');
   final _user = TextEditingController();
   final _pass = TextEditingController();
@@ -47,7 +54,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   @override
   void dispose() {
-    for (final c in [_url, _user, _pass, _path, _newFolder, _login, _pw, _pw2]) {
+    for (final c in [_url, _user, _pass, _path, _newFolder, _login, _pw, _pw2, _gId, _gSecret]) {
       c.dispose();
     }
     super.dispose();
@@ -87,6 +94,12 @@ class _ConnectScreenState extends State<ConnectScreen> {
           return;
         }
         _remote = LocalRemote(p);
+      } else if (_gd) {
+        if (_gdToken.isEmpty) {
+          _fail('Сначала войдите в Google');
+          return;
+        }
+        _remote = GDriveRemote(Settings(gClientId: _gId.text.trim(), gSecret: _gSecret.text.trim(), gdRefresh: _gdToken));
       } else {
         if (_url.text.trim().isEmpty || _user.text.trim().isEmpty || _pass.text.isEmpty) {
           _fail('Заполните адрес, логин и пароль WebDAV');
@@ -195,15 +208,21 @@ class _ConnectScreenState extends State<ConnectScreen> {
       login,
       pw,
       kind: 'online',
-      url: _local ? '' : _url.text.trim(),
-      user: _local ? '' : _user.text.trim(),
-      pass: _local ? '' : _pass.text,
-      storage: _local ? 'local' : 'webdav',
+      url: _local || _gd ? '' : _url.text.trim(),
+      user: _local || _gd ? '' : _user.text.trim(),
+      pass: _local || _gd ? '' : _pass.text,
+      storage: _kind,
       folder: _folder,
       localPath: _local ? _path.text.trim() : '',
       uid: uid,
       remoteSettings: rs,
     );
+    if (_gd) {
+      s.settings.gClientId = _gId.text.trim();
+      s.settings.gSecret = _gSecret.text.trim();
+      s.settings.gdRefresh = _gdToken;
+      await s.saveSettings();
+    }
     if (_remember) await s.rememberLogin(pw);
     if (mounted) Navigator.pop(context, true);
   }
@@ -247,23 +266,49 @@ class _ConnectScreenState extends State<ConnectScreen> {
     );
   }
 
+  Future<void> _googleLogin() async {
+    setState(() {
+      _busy = true;
+      _err = null;
+    });
+    try {
+      final t = await GDrive.authorizeRaw(_gId.text.trim(), _gSecret.text.trim());
+      if (mounted) {
+        setState(() {
+          _gdToken = t;
+          _busy = false;
+        });
+      }
+    } catch (e) {
+      _fail('$e');
+    }
+  }
+
+  void _preset(String url) => setState(() => _url.text = url);
+
   List<Widget> _stepStorage(Color sec) => [
-        SegmentedButton<bool>(
+        SegmentedButton<String>(
           segments: const [
-            ButtonSegment(value: false, label: Text('WebDAV'), icon: Icon(Icons.cloud_outlined)),
-            ButtonSegment(value: true, label: Text('Папка'), icon: Icon(Icons.folder_outlined)),
+            ButtonSegment(value: 'webdav', label: Text('WebDAV'), icon: Icon(Icons.cloud_outlined)),
+            ButtonSegment(value: 'gdrive', label: Text('Google'), icon: Icon(Icons.add_to_drive_outlined)),
+            ButtonSegment(value: 'local', label: Text('Папка'), icon: Icon(Icons.folder_outlined)),
           ],
-          selected: {_local},
-          onSelectionChanged: (v) => setState(() => _local = v.first),
+          selected: {_kind},
+          onSelectionChanged: (v) => setState(() => _kind = v.first),
         ),
         const SizedBox(height: 16),
-        if (!_local) ...[
+        if (_kind == 'webdav') ...[
           Text(
-              'Укажите WebDAV-доступ к облаку. Mail.ru: пароль для внешнего приложения '
-              'с доступом WebDAV. Эти данные нужны только для доступа к хранилищу; '
-              'ваш собственный логин и пароль в ASRbox — на третьем шаге.',
+              'WebDAV: Mail.ru Облако, Яндекс Диск и любой другой сервер. Нужен пароль для '
+              'внешнего приложения (не основной пароль аккаунта). Ваш собственный логин и пароль '
+              'ASRbox — на третьем шаге.',
               style: TextStyle(color: sec, fontSize: 13)),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, children: [
+            ActionChip(label: const Text('Mail.ru'), onPressed: () => _preset('https://webdav.cloud.mail.ru')),
+            ActionChip(label: const Text('Яндекс Диск'), onPressed: () => _preset('https://webdav.yandex.ru')),
+          ]),
+          const SizedBox(height: 8),
           TextField(controller: _url, decoration: const InputDecoration(labelText: 'Адрес WebDAV')),
           const SizedBox(height: 10),
           TextField(controller: _user, decoration: const InputDecoration(labelText: 'Логин облака (почта)')),
@@ -272,6 +317,24 @@ class _ConnectScreenState extends State<ConnectScreen> {
               controller: _pass,
               obscureText: true,
               decoration: const InputDecoration(labelText: 'Пароль приложения')),
+        ] else if (_gd) ...[
+          Text(
+              'Google Диск через Drive API. Приложение видит только созданные им папки. '
+              'Нужны Client ID и Client Secret (тип «Приложение для ПК», включите Google Drive API в консоли Google Cloud).',
+              style: TextStyle(color: sec, fontSize: 13)),
+          const SizedBox(height: 10),
+          TextField(controller: _gId, decoration: const InputDecoration(labelText: 'Client ID')),
+          const SizedBox(height: 10),
+          TextField(
+              controller: _gSecret,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Client Secret')),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : _googleLogin,
+            icon: Icon(_gdToken.isEmpty ? Icons.login : Icons.check_circle_outline),
+            label: Text(_gdToken.isEmpty ? 'Войти в Google' : 'Вход выполнен'),
+          ),
         ] else ...[
           Text(
               'Данные лягут в обычную папку на устройстве. Её можно синхронизировать '

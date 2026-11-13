@@ -9,7 +9,7 @@ import 'applog.dart';
 import 'autofill.dart';
 import 'backup.dart';
 import 'diag_screens.dart';
-import 'family.dart';
+import 'gdrive.dart';
 import 'google.dart';
 import 'ics.dart';
 import 'local_tx.dart';
@@ -56,17 +56,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'url': TextEditingController(text: st.url),
       'user': TextEditingController(text: st.user),
       'pass': TextEditingController(text: st.pass),
-      'family': TextEditingController(text: st.familyPass),
       'txUrl': TextEditingController(text: st.txUrl),
       'txKey': TextEditingController(text: st.txKey),
       'txModel': TextEditingController(text: st.txModel),
       'gId': TextEditingController(text: st.gClientId),
       'gSecret': TextEditingController(text: st.gSecret),
       'lock': TextEditingController(text: st.autoLock.toString()),
-      'gUrl': TextEditingController(text: st.grpUrl),
-      'gUser': TextEditingController(text: st.grpUser),
-      'gPass': TextEditingController(text: st.grpPass),
-      'gFolder': TextEditingController(text: st.grpFolder),
       'bkUrl': TextEditingController(text: st.bkUrl),
       'bkUser': TextEditingController(text: st.bkUser),
       'bkPass': TextEditingController(text: st.bkPass),
@@ -96,16 +91,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     st.url = c['url']!.text.trim();
     st.user = c['user']!.text.trim();
     st.pass = c['pass']!.text;
-    st.familyPass = c['family']!.text;
     st.txUrl = c['txUrl']!.text.trim();
     st.txKey = c['txKey']!.text.trim();
     st.txModel = c['txModel']!.text.trim();
     st.gClientId = c['gId']!.text.trim();
     st.gSecret = c['gSecret']!.text.trim();
-    st.grpUrl = c['gUrl']!.text.trim();
-    st.grpUser = c['gUser']!.text.trim();
-    st.grpPass = c['gPass']!.text;
-    st.grpFolder = c['gFolder']!.text.trim();
     st.bkUrl = c['bkUrl']!.text.trim();
     st.bkUser = c['bkUser']!.text.trim();
     st.bkPass = c['bkPass']!.text;
@@ -114,7 +104,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
     st.autoLock = l.clamp(15, 3600).toInt();
   }
 
-  /// Настройки сохраняются сами, кнопка «Сохранить» не нужна.
+  /// Кнопка «Сохранить»: записывает только настройки, без синхронизации.
+  Future<void> _saveOnly() async {
+    _autoTimer?.cancel();
+    final oldName = st.author;
+    _apply();
+    await s.saveSettings();
+    if (st.author != oldName) await s.renameCurrent(st.author);
+    if (mounted) toast(context, 'Настройки сохранены');
+  }
+
+  /// Сброс профиля: предупреждение и подтверждение словом.
+  Future<void> _reset() async {
+    final ctl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => AlertDialog(
+          title: const Text('Сбросить профиль?'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Все данные профиля будут удалены с этого устройства без возможности '
+                'восстановления, кроме копии в облаке и резервных копий. Для подтверждения введите СБРОС.'),
+            const SizedBox(height: 10),
+            TextField(controller: ctl, onChanged: (_) => set(() {})),
+          ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Отмена')),
+            TextButton(
+                onPressed:
+                    ctl.text.trim().toUpperCase() == 'СБРОС' ? () => Navigator.pop(ctx, true) : null,
+                child: const Text('Сбросить')),
+          ],
+        ),
+      ),
+    );
+    ctl.dispose();
+    if (ok != true) return;
+    _autoTimer?.cancel();
+    await s.resetProfile();
+    await widget.onLogout(true);
+  }
+
+  /// Настройки сохраняются сами; кнопка «Сохранить» делает это сразу.
   void _auto() {
     _autoTimer?.cancel();
     _autoTimer = Timer(const Duration(milliseconds: 700), _autoNow);
@@ -168,97 +201,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ]),
     );
-  }
-
-  Future<void> _copyInvite() async {
-    _apply();
-    final j = jsonEncode({
-      'v': 1,
-      'u': st.grpUrl,
-      'n': st.grpUser,
-      'p': st.grpPass,
-      'f': st.grpFolder,
-    });
-    await Clipboard.setData(ClipboardData(text: 'asrbox:${base64Url.encode(utf8.encode(j))}'));
-    if (mounted) toast(context, 'Приглашение скопировано');
-  }
-
-  Future<void> _pasteInvite() async {
-    final d = await Clipboard.getData(Clipboard.kTextPlain);
-    final t = (d?.text ?? '').trim();
-    try {
-      if (!t.startsWith('asrbox:')) throw 'нет приглашения в буфере обмена';
-      final m = jsonDecode(utf8.decode(base64Url.decode(t.substring(7)))) as Map;
-      setState(() {
-        c['gUrl']!.text = (m['u'] ?? '') as String;
-        c['gUser']!.text = (m['n'] ?? '') as String;
-        c['gPass']!.text = (m['p'] ?? '') as String;
-        c['gFolder']!.text = (m['f'] ?? '') as String;
-      });
-      _autoNow();
-      if (mounted) toast(context, 'Группа подключена');
-    } catch (e) {
-      if (mounted) toast(context, 'Приглашение не распознано: $e');
-    }
-  }
-
-  Future<void> _members() async {
-    _apply();
-    try {
-      final list = await SyncService.members(s);
-      final granted = await FamilyKeys.granted(s);
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Участники'),
-          content: SizedBox(
-            width: 340,
-            child: ListView(shrinkWrap: true, children: [
-              for (final m in list)
-                Builder(builder: (_) {
-                  final uuid = (m['uuid'] ?? '').toString();
-                  final pub = (m['pub'] ?? '').toString();
-                  final has = granted.contains(uuid);
-                  Widget? trailing;
-                  if (has) {
-                    trailing = Icon(Icons.check_circle,
-                        color: Pal.success(ctx), size: 20);
-                  } else if (st.famKey.isNotEmpty && pub.isNotEmpty) {
-                    trailing = TextButton(
-                      onPressed: () async {
-                        try {
-                          await FamilyKeys.grant(s, uuid, pub);
-                          if (ctx.mounted) Navigator.pop(ctx);
-                          if (mounted) toast(context, 'Доступ выдан');
-                        } catch (e) {
-                          if (mounted) toast(context, '$e');
-                        }
-                      },
-                      child: const Text('Дать доступ'),
-                    );
-                  }
-                  return ListTile(
-                    leading: Avatar((m['name'] ?? '?').toString(),
-                        ((m['color'] ?? 0xFF007AFF) as num).toInt()),
-                    title: Text((m['name'] ?? '').toString()),
-                    subtitle: Text(
-                        has
-                            ? 'Есть доступ к семейным заметкам'
-                            : (pub.isEmpty
-                                ? 'Ещё не обновил приложение'
-                                : 'Ждёт доступа'),
-                        style: const TextStyle(fontSize: 12)),
-                    trailing: trailing,
-                  );
-                }),
-            ]),
-          ),
-        ),
-      );
-    } catch (e) {
-      if (mounted) toast(context, '$e');
-    }
   }
 
   Future<void> _google() async {
@@ -568,7 +510,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Настройки')),
+      appBar: AppBar(title: const Text('Настройки'), actions: [
+        TextButton.icon(
+            onPressed: _saveOnly,
+            icon: const Icon(Icons.check),
+            label: const Text('Сохранить')),
+      ]),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -653,52 +600,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const {'wifi': 'Только Wi-Fi', 'any': 'Любая сеть', 'off': 'Не синхронизировать'},
               (v) => st.attMode = v),
 
-          const SectionTitle('Семья'),
-          Hint(st.famKey.isEmpty
-              ? 'Один человек создаёт семейный ключ. Остальные входят в приложение, настраивают '
-                  'WebDAV и нажимают «Сохранить и синхронизировать» — их профиль появится в списке участников, '
-                  'где владелец ключа нажимает «Дать доступ». Ключ приходит при следующей синхронизации. '
-                  'Все участники должны работать с одной папкой MySecureApp в Облаке.'
-              : 'Семейный ключ на этом устройстве есть. Новым участникам доступ выдаётся в списке участников.'),
-          if (st.famKey.isEmpty && st.familyPass.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: FilledButton(
-                onPressed: !st.syncConfigured
-                    ? null
-                    : () async {
-                        _apply();
-                        try {
-                          await FamilyKeys.createFamily(s);
-                          if (mounted) {
-                            setState(() {});
-                            toast(context, 'Семейный ключ создан');
-                          }
-                          s.syncAll();
-                        } catch (e) {
-                          if (mounted) toast(context, '$e');
-                        }
-                      },
-                child: const Text('Создать семейный ключ'),
-              ),
-            ),
-          OutlinedButton(
-              onPressed: st.syncConfigured ? _members : null,
-              child: const Text('Участники')),
-          const SizedBox(height: 12),
-          const Hint('Запасной вариант без ключей: общий семейный пароль (одинаковый у всех). '
-              'Не используйте его вместе с семейным ключом.'),
-          _field('family', 'Семейный пароль', obscure: true),
-
           const SectionTitle('Модули'),
           const Hint('Отключённый модуль не загружается и не нагружает приложение. '
               'Связи работают и при отключённом модуле: например, событие, созданное '
               'из заметки, попадёт в календарь и напомнит о себе.'),
           for (final m in const {
             'notes': 'Заметки',
+            'shared': 'Общая папка',
             'calendar': 'Календарь',
             'pass': 'Пароли',
-            'chat': 'Чаты',
+            'backup': 'Бэкап',
           }.entries)
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
@@ -709,33 +620,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _autoNow();
               },
             ),
-
-          const SectionTitle('Общая группа (другой WebDAV)'),
-          const Hint('Чтобы объединить в семью людей, которые входят через разные WebDAV, '
-              'укажите один общий WebDAV для группы: общие заметки, комментарии и чат '
-              'будут лежать там. Личные данные остаются на вашем хранилище. '
-              'Оставьте пустым, если все используют одно хранилище.'),
-          _field('gUrl', 'Адрес WebDAV группы'),
-          _field('gUser', 'Логин WebDAV группы'),
-          _field('gPass', 'Пароль WebDAV группы', obscure: true),
-          _field('gFolder', 'Папка группы'),
-          Row(children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: st.groupConfigured ? _copyInvite : null,
-                child: const Text('Копировать приглашение'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: _pasteInvite,
-                child: const Text('Вставить приглашение'),
-              ),
-            ),
-          ]),
-          const Hint('Приглашение содержит доступ к WebDAV группы — передавайте только '
-              'тем, кому доверяете. Семейный ключ выдаётся отдельно, в «Участники».'),
 
           const SectionTitle('Фото'),
           _drop('Качество при добавлении', st.photoQuality, const {
@@ -888,8 +772,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
           _drop('Сервер для бэкапов', st.bkStorage,
-              const {'same': 'Текущий WebDAV', 'custom': 'Другой WebDAV'},
+              const {
+                'same': 'Текущее хранилище',
+                'custom': 'Другой WebDAV (в т.ч. Яндекс Диск)',
+                'gdrive': 'Google Диск'
+              },
               (v) => st.bkStorage = v),
+          if (st.bkStorage == 'custom')
+            const Hint('Яндекс Диск: адрес https://webdav.yandex.ru, логин — ваш логин Яндекса, '
+                'пароль — «пароль приложения» (id.yandex.ru → Безопасность → Пароли приложений).'),
+          if (st.bkStorage == 'gdrive') ...[
+            const Hint('Google Диск: используются Client ID и Secret из раздела «Google Календарь» '
+                '(OAuth-клиент типа «Компьютер», в проекте включён Drive API). '
+                'Приложение видит только созданные им файлы (доступ drive.file).'),
+            OutlinedButton(
+              onPressed: () async {
+                _apply();
+                try {
+                  await GDrive.authorize(s);
+                  if (mounted) {
+                    setState(() {});
+                    toast(context, 'Google Диск подключён');
+                  }
+                } catch (e) {
+                  if (mounted) toast(context, 'Не удалось войти: $e');
+                }
+              },
+              child: Text(st.gdRefresh.isEmpty
+                  ? 'Войти в Google Диск'
+                  : 'Google Диск подключён · войти заново'),
+            ),
+          ],
           if (st.bkStorage == 'custom') ...[
             _field('bkUrl', 'Адрес WebDAV для бэкапов'),
             _field('bkUser', 'Логин'),
@@ -902,6 +815,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (st.bkLast > 0)
             Hint('Последняя загрузка: ${fmtDate(st.bkLast)}'),
           const Hint('Импорт и экспорт паролей (CSV и другие форматы) находятся во вкладке «Пароли», меню ⋮.'),
+
+          const SectionTitle('Шифрование'),
+          const Hint('Три независимых ключа:\n'
+              '1. Общее — ключ из логина и пароля профиля: заметки, календарь, настройки и всё остальное, кроме паролей и общей папки.\n'
+              '2. Общая папка — отдельный ключ, создаётся вместе с папкой и входит в приглашение.\n'
+              '3. Пароли — отдельный мастер-пароль, задаётся при создании хранилища паролей.'),
+
+          const SectionTitle('Сохранение'),
+          const Hint('Настройки сохраняются сами; кнопка записывает только настройки и не запускает синхронизацию.'),
+          FilledButton.icon(
+              onPressed: _saveOnly,
+              icon: const Icon(Icons.check),
+              label: const Text('Сохранить настройки')),
+
+          const SectionTitle('Сброс'),
+          const Hint('Удаляет этот профиль с устройства: заметки, события, пароли, ключи и вложения. '
+              'Данные в облаке остаются. Для возврата понадобится снова войти в хранилище.'),
+          OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(foregroundColor: Pal.error(context)),
+              onPressed: _reset,
+              icon: const Icon(Icons.warning_amber_rounded),
+              label: const Text('Сбросить профиль')),
 
           const SectionTitle('Отладка и диагностика'),
           const Hint('Журнал ошибок, сбоев и зависаний с причинами; его можно сохранить файлом.'),

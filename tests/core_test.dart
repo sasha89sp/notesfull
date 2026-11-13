@@ -3,7 +3,6 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mysecure_notes/backup.dart';
 import 'package:mysecure_notes/crypto.dart';
-import 'package:mysecure_notes/family.dart';
 import 'package:mysecure_notes/formula.dart';
 import 'package:mysecure_notes/ics.dart';
 import 'package:mysecure_notes/merge.dart';
@@ -148,22 +147,6 @@ void main() {
     test('без базы слияние не выполняется', () {
       expect(mergeNotes(_note('a'), _note('b')), isNull);
     });
-  });
-
-  test('семейный ключ: обёртка X25519', () async {
-    final a = Settings();
-    final kp = await X25519().newKeyPair();
-    a.kpPriv = base64Encode(await kp.extractPrivateKeyBytes());
-    a.kpPub = base64Encode((await kp.extractPublicKey()).bytes);
-    final key = List<int>.generate(32, (i) => i * 7 % 256);
-    final w = await FamilyKeys.wrap(key, a.kpPub);
-    expect(await FamilyKeys.unwrap(w, a), key);
-
-    final b = Settings();
-    final kp2 = await X25519().newKeyPair();
-    b.kpPriv = base64Encode(await kp2.extractPrivateKeyBytes());
-    b.kpPub = base64Encode((await kp2.extractPublicKey()).bytes);
-    await expectLater(FamilyKeys.unwrap(w, b), throwsA(anything));
   });
 
   test('Joplin JEX: экспорт и повторный разбор', () {

@@ -9,10 +9,12 @@ import 'widgets.dart';
 /// иначе вкладка «Заметки» с сегментами [Все] [Заметки] [Таблицы].
 class NotesList extends StatefulWidget {
   final Store store;
-  final String filter; // all | personal | family | fav
+  final String filter; // all (личные) | fav | vault:<vault> (заметки общей папки)
   final String? tag;
   final bool home;
+  final String folder; // папка, которую нужно открыть (из меню слева)
   final VoidCallback onClearTag;
+  final void Function(String folderId)? onOpenFolder;
   const NotesList({
     super.key,
     required this.store,
@@ -20,6 +22,8 @@ class NotesList extends StatefulWidget {
     required this.tag,
     required this.home,
     required this.onClearTag,
+    this.folder = '',
+    this.onOpenFolder,
   });
 
   @override
@@ -33,6 +37,20 @@ class _NotesListState extends State<NotesList> {
   final _search = TextEditingController();
 
   Store get s => widget.store;
+
+  @override
+  void initState() {
+    super.initState();
+    _cur = widget.folder;
+  }
+
+  @override
+  void didUpdateWidget(NotesList old) {
+    super.didUpdateWidget(old);
+    if (old.folder != widget.folder) _cur = widget.folder;
+  }
+
+  bool get _isVault => widget.filter.startsWith('vault:');
 
   @override
   void dispose() {
@@ -59,9 +77,9 @@ class _NotesListState extends State<NotesList> {
   }
 
   void create() {
-    final f = widget.filter;
-    final n = Note.create(s.author, s.profileId, f == 'family' ? 'family' : 'personal');
-    if (!widget.home) n.folder = _cur;
+    final n = Note.create(
+        s.author, s.profileId, _isVault ? widget.filter.substring(6) : 'personal');
+    if (!widget.home && !_isVault) n.folder = _cur;
     s.notes.add(n);
     _open(n);
   }
@@ -169,6 +187,14 @@ class _NotesListState extends State<NotesList> {
               title: const Text('Переместить'),
               onTap: () => Navigator.pop(ctx, 'mv')),
           ListTile(
+              leading: Icon(s.isFolderFav(f.id) ? Icons.star : Icons.star_border),
+              title: Text(s.isFolderFav(f.id) ? 'Убрать из избранного' : 'В избранное'),
+              onTap: () => Navigator.pop(ctx, 'fav')),
+          ListTile(
+              leading: Icon(s.isPinned(f.id) ? Icons.push_pin : Icons.push_pin_outlined),
+              title: Text(s.isPinned(f.id) ? 'Открепить с главной' : 'Закрепить на главной'),
+              onTap: () => Navigator.pop(ctx, 'pin')),
+          ListTile(
               leading: const Icon(Icons.delete_outline),
               title: const Text('Удалить папку (содержимое сохранится)'),
               onTap: () => Navigator.pop(ctx, 'del')),
@@ -181,6 +207,10 @@ class _NotesListState extends State<NotesList> {
     } else if (act == 'mv') {
       final to = await _pickFolder(exclude: f.id);
       if (to != null) s.moveFolder(f, to);
+    } else if (act == 'fav') {
+      s.toggleFolderFav(f.id);
+    } else if (act == 'pin') {
+      s.togglePin(f.id);
     } else if (act == 'del') {
       s.deleteFolder(f);
     }
@@ -192,9 +222,18 @@ class _NotesListState extends State<NotesList> {
       builder: (ctx) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
-              leading: const Icon(Icons.drive_file_move_outlined),
-              title: const Text('Переместить в папку'),
-              onTap: () => Navigator.pop(ctx, 'mv')),
+              leading: Icon(n.favorite ? Icons.star : Icons.star_border),
+              title: Text(n.favorite ? 'Убрать из избранного' : 'В избранное'),
+              onTap: () => Navigator.pop(ctx, 'fav')),
+          ListTile(
+              leading: Icon(s.isPinned(n.id) ? Icons.push_pin : Icons.push_pin_outlined),
+              title: Text(s.isPinned(n.id) ? 'Открепить с главной' : 'Закрепить на главной'),
+              onTap: () => Navigator.pop(ctx, 'pin')),
+          if (!n.isGroup)
+            ListTile(
+                leading: const Icon(Icons.drive_file_move_outlined),
+                title: const Text('Переместить в папку'),
+                onTap: () => Navigator.pop(ctx, 'mv')),
           ListTile(
               leading: const Icon(Icons.delete_outline),
               title: const Text('Удалить'),
@@ -205,9 +244,53 @@ class _NotesListState extends State<NotesList> {
     if (act == 'mv') {
       final to = await _pickFolder();
       if (to != null) s.moveNote(n, to);
+    } else if (act == 'fav') {
+      n.favorite = !n.favorite;
+      n.updatedAt = nowMs();
+      s.changed();
+    } else if (act == 'pin') {
+      s.togglePin(n.id);
     } else if (act == 'del') {
       await _confirmDelete(n);
     }
+  }
+
+  /// Закреплённые на главной заметки и папки.
+  Widget _pinnedBlock() {
+    final cards = <Widget>[];
+    for (final id in List<String>.of(s.settings.pinned)) {
+      final f = s.folderById(id);
+      if (f != null) {
+        cards.add(AppCard(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          onTap: () => widget.onOpenFolder?.call(f.id),
+          onLongPress: () => _folderMenu(f),
+          child: Row(children: [
+            Icon(Icons.folder_outlined, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+                child: Text(f.name, style: const TextStyle(fontWeight: FontWeight.w600))),
+            Icon(Icons.push_pin, size: 16, color: Pal.secondary(context)),
+          ]),
+        ));
+        continue;
+      }
+      Note? n;
+      for (final x in s.notes) {
+        if (x.id == id && !x.deleted) n = x;
+      }
+      if (n != null) cards.add(_card(n));
+    }
+    if (cards.isEmpty) return const SizedBox.shrink();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 8, 4, 4),
+        child: Text('Закреплённое',
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w600, color: Pal.secondary(context))),
+      ),
+      ...cards,
+    ]);
   }
 
   Widget _folderBar() {
@@ -282,7 +365,7 @@ class _NotesListState extends State<NotesList> {
                 child: Icon(Icons.star, size: 16, color: Color(0xFFFF9500)),
               ),
             Icon(
-              n.vault == 'family' ? Icons.group_outlined : Icons.lock_outline,
+              n.isGroup ? Icons.group_outlined : Icons.lock_outline,
               size: 16,
               color: Pal.secondary(context),
             ),
@@ -300,7 +383,7 @@ class _NotesListState extends State<NotesList> {
           ],
           const SizedBox(height: 4),
           Text(
-              n.vault == 'family' && n.editor.isNotEmpty
+              n.isGroup && n.editor.isNotEmpty
                   ? '${n.editor} · ${fmtDate(n.updatedAt)}'
                   : fmtDate(n.updatedAt),
               style: TextStyle(color: Pal.secondary(context), fontSize: 12)),
@@ -362,7 +445,8 @@ class _NotesListState extends State<NotesList> {
       animation: s,
       builder: (context, _) {
         if (_cur.isNotEmpty && s.folderById(_cur) == null) _cur = '';
-        final foldersMode = !widget.home && _q.isEmpty && widget.tag == null;
+        final foldersMode =
+            !widget.home && _q.isEmpty && widget.tag == null && !_isVault && widget.filter != 'fav';
         var list = s.notes.where((n) => !n.deleted).toList();
         if (foldersMode) {
           list = list.where((n) {
@@ -372,16 +456,13 @@ class _NotesListState extends State<NotesList> {
             return f == _cur;
           }).toList();
         }
-        switch (widget.filter) {
-          case 'personal':
-            list = list.where((n) => n.vault == 'personal').toList();
-            break;
-          case 'family':
-            list = list.where((n) => n.vault == 'family').toList();
-            break;
-          case 'fav':
-            list = list.where((n) => n.favorite).toList();
-            break;
+        if (_isVault) {
+          final v = widget.filter.substring(6);
+          list = list.where((n) => n.vault == v).toList();
+        } else if (widget.filter == 'fav') {
+          list = list.where((n) => n.favorite).toList();
+        } else {
+          list = list.where((n) => n.vault == 'personal').toList(); // общие — в разделе «Общая папка»
         }
         if (widget.tag != null) {
           list = list.where((n) => n.tags.contains(widget.tag)).toList();
@@ -406,6 +487,7 @@ class _NotesListState extends State<NotesList> {
 
         final items = <Widget>[];
         if (widget.home) items.add(_upcoming());
+        if (widget.home) items.add(_pinnedBlock());
         if (foldersMode) items.add(_folderBar());
         String? lastG;
         for (final n in list) {

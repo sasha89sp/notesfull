@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mysecure_notes/accounts.dart';
 import 'package:mysecure_notes/crypto.dart';
+import 'package:mysecure_notes/groups.dart';
+import 'package:mysecure_notes/phone_data.dart';
 import 'package:mysecure_notes/models.dart';
 import 'package:mysecure_notes/remote.dart';
 import 'package:mysecure_notes/util.dart';
@@ -104,5 +106,42 @@ void main() {
     expect(back.text, 'Привет');
     expect(back.id, m.id);
     expect(m.fileName.endsWith('_${m.id}.enc'), isTrue);
+  });
+
+  test('Общая папка: приглашение (открытое и зашифрованное) разбирается обратно', () async {
+    final key = await Groups.makeKey();
+    final g = Group(
+        id: 'g1', name: 'Семья', url: 'https://dav.example', user: 'u', pass: 'p',
+        folder: '/Shared', key: key, owner: 'o1');
+    for (final enc in [false, true]) {
+      final text = await Groups.invite(g, encrypted: enc);
+      expect(text.contains('\n'), isFalse);
+      final r = await Groups.parseInvite(text);
+      expect(r.url, g.url);
+      expect(r.user, 'u');
+      expect(r.pass, 'p');
+      expect(r.folder, '/Shared');
+      expect(r.key, key);
+    }
+    final enc = await Groups.invite(g, encrypted: true);
+    expect(enc.contains('https://dav.example'), isFalse);
+    expect(enc.contains('"p"'), isFalse);
+  });
+
+  test('Общая папка: ключ из фразы стабилен, автоключ случайный', () async {
+    expect(await Groups.makeKey(phrase: 'abc'), await Groups.makeKey(phrase: 'abc'));
+    expect(await Groups.makeKey(), isNot(await Groups.makeKey()));
+    expect(Groups.normFolder(' docs '), '/docs');
+  });
+
+  test('vCard: экспорт и разбор контактов', () {
+    final l = [
+      {'name': 'Иван Петров', 'phones': ['+7 900 111-22-33'], 'emails': ['a@b.ru'], 'org': 'ООО', 'note': 'строка1\nстрока2'}
+    ];
+    final back = PhoneData.parseVcf(PhoneData.toVcf(l));
+    expect(back.length, 1);
+    expect(back[0]['name'], 'Иван Петров');
+    expect(back[0]['phones'], ['+7 900 111-22-33']);
+    expect(back[0]['note'], 'строка1\nстрока2');
   });
 }

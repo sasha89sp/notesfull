@@ -10,7 +10,8 @@ import 'widgets.dart';
 /// участники могут быть подключены к разным WebDAV (см. настройки → Общая группа).
 class ChatPage extends StatefulWidget {
   final Store store;
-  const ChatPage({super.key, required this.store});
+  final Group group;
+  const ChatPage({super.key, required this.store, required this.group});
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -47,7 +48,7 @@ class _ChatPageState extends State<ChatPage> {
     if (_polling || s.syncing) return;
     _polling = true;
     try {
-      await SyncService.chatOnly(s);
+      await SyncService.chatOnly(s, widget.group);
     } catch (_) {
       // сеть недоступна — повторим при следующем опросе
     } finally {
@@ -59,7 +60,7 @@ class _ChatPageState extends State<ChatPage> {
     final t = _text.text.trim();
     if (t.isEmpty) return;
     _text.clear();
-    await s.sendChat('general', t);
+    await s.sendChat(widget.group.id, t);
     _refresh();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
@@ -111,16 +112,8 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     final st = s.settings;
-    final hasKey = st.famKey.isNotEmpty || st.familyPass.isNotEmpty;
-    if (!st.syncConfigured && !st.groupConfigured) {
-      return const _Hint('Чат работает через общую группу. Подключите хранилище или '
-          'общую группу в Настройки → Общая группа.');
-    }
-    if (!hasKey) {
-      return const _Hint('Нужен семейный ключ: создайте семью или получите доступ от '
-          'владельца (Настройки → Семья).');
-    }
-    final msgs = s.chat.where((m) => m.room == 'general').toList();
+    final ro = widget.group.readOnly;
+    final msgs = s.chat.where((m) => m.room == widget.group.id).toList();
     final sec = Pal.secondary(context);
     return Column(children: [
       Expanded(
@@ -172,6 +165,12 @@ class _ChatPageState extends State<ChatPage> {
                     },
                   ),
       ),
+      if (ro)
+        const Padding(
+          padding: EdgeInsets.all(12),
+          child: Text('Отправка сообщений ограничена создателем папки'),
+        )
+      else
       SafeArea(
         top: false,
         child: Padding(

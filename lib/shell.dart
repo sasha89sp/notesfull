@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'backup.dart';
+import 'backup_page.dart';
 import 'calendar_page.dart';
-import 'chat_page.dart';
 import 'desktop.dart';
 import 'editor.dart';
 import 'event_screen.dart';
@@ -13,11 +13,12 @@ import 'notes_page.dart';
 import 'pass_page.dart';
 import 'pass_store.dart';
 import 'settings_screen.dart';
+import 'shared_page.dart';
 import 'store.dart';
 import 'widgets.dart';
 
-/// Главная оболочка: нижняя навигация (Главная, Заметки, Календарь, Пароли),
-/// боковое меню, триггеры синхронизации, всплывающее напоминание на Windows.
+/// Главная оболочка: нижняя навигация, боковое меню (профиль, модули,
+/// «Избранное», настройки, тема), кнопка и строка статуса синхронизации сверху.
 class Shell extends StatefulWidget {
   final Store store;
   final PassStore pass;
@@ -36,8 +37,9 @@ class Shell extends StatefulWidget {
 class _ShellState extends State<Shell> with WidgetsBindingObserver {
   String _tab = 'home';
   final Set<String> _visited = {'home'};
-  String _filter = 'all';
   String? _tag;
+  String _folder = ''; // папка, открытая из «Избранного»
+  int _folderSeq = 0;
   Timer? _timer;
   StreamSubscription<List<ConnectivityResult>>? _conn;
 
@@ -82,47 +84,41 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   List<String> get _mods => [
         'home',
         if (_on('notes')) 'notes',
+        if (_on('shared')) 'shared',
         if (_on('calendar')) 'calendar',
         if (_on('pass')) 'pass',
-        if (_on('chat')) 'chat',
+        if (_on('backup')) 'backup',
       ];
+
+  /// В нижней панели — не больше пяти пунктов; «Бэкап» только в меню.
+  List<String> get _navMods => _mods.where((m) => m != 'backup').toList();
 
   void _go(String m) => setState(() {
         _tab = m;
         _visited.add(m);
       });
 
-  String get _title {
-    switch (_tab) {
-      case 'notes':
-        return _filterName();
-      case 'calendar':
-        return 'Календарь';
-      case 'pass':
-        return 'Пароли';
-      case 'chat':
-        return 'Чаты';
-      default:
-        return _filter == 'all' ? 'Главная' : _filterName();
-    }
-  }
+  static const _icons = {
+    'home': Icons.home_outlined,
+    'notes': Icons.notes,
+    'shared': Icons.folder_shared_outlined,
+    'calendar': Icons.calendar_month_outlined,
+    'pass': Icons.key_outlined,
+    'backup': Icons.backup_outlined,
+  };
+  static const _names = {
+    'home': 'Главная',
+    'notes': 'Заметки',
+    'shared': 'Общая папка',
+    'calendar': 'Календарь',
+    'pass': 'Пароли',
+    'backup': 'Бэкап',
+  };
 
-  String _filterName() {
-    switch (_filter) {
-      case 'personal':
-        return 'Личное';
-      case 'family':
-        return 'Семейное';
-      case 'fav':
-        return 'Избранное';
-      default:
-        return 'Заметки';
-    }
-  }
+  String get _title => _names[_tab] ?? 'Главная';
 
   void _newNote() {
-    final n = Note.create(
-        s.author, s.profileId, _filter == 'family' ? 'family' : 'personal');
+    final n = Note.create(s.author, s.profileId, 'personal');
     s.notes.add(n);
     Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => EditorScreen(store: s, note: n)));
@@ -168,6 +164,12 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     );
   }
 
+  void _openSettings() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => SettingsScreen(
+            store: s, onTheme: widget.onTheme, onLogout: widget.onLogout)));
+  }
+
   Widget _drawerItem(IconData icon, String label, VoidCallback f,
       {bool selected = false}) {
     return ListTile(
@@ -181,181 +183,188 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     );
   }
 
+  Widget _section(String t) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+        child: Text(t,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
+      );
+
   Widget _drawer() {
     final tags = <String>{};
-    for (final n in (_on('notes') ? s.notes.where((n) => !n.deleted) : <Note>[])) {
-      tags.addAll(n.tags);
+    if (_on('notes')) {
+      for (final n in s.notes.where((n) => !n.deleted && !n.isGroup)) {
+        tags.addAll(n.tags);
+      }
     }
     final sortedTags = tags.toList()..sort();
+    final favFolders = _on('notes')
+        ? s.folders
+            .where((f) => !f.deleted && s.isFolderFav(f.id))
+            .toList()
+        : <NoteFolder>[];
+    final favNotes = _on('notes')
+        ? s.notes.where((n) => !n.deleted && !n.isGroup && n.favorite).toList()
+        : <Note>[];
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Drawer(
       child: SafeArea(
         child: Column(children: [
           Expanded(
-              child: ListView(children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(children: [
-              Avatar(s.author, s.settings.color, radius: 22),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(s.author,
-                    style: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.w600)),
-              ),
-            ]),
-          ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
-            child: Text('МОДУЛИ',
-                style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
-          ),
-          if (_on('notes'))
-            _drawerItem(Icons.notes, 'Заметки', () {
-              _go('notes');
-              setState(() {
-                _filter = 'all';
-                _tag = null;
-              });
-            }, selected: _tab == 'notes'),
-          if (_on('calendar'))
-            _drawerItem(Icons.calendar_month_outlined, 'Календарь',
-                () => _go('calendar'),
-                selected: _tab == 'calendar'),
-          if (_on('pass'))
-            _drawerItem(Icons.key_outlined, 'Пароли', () => _go('pass'),
-                selected: _tab == 'pass'),
-          if (_on('chat'))
-            _drawerItem(Icons.chat_bubble_outline, 'Чаты', () => _go('chat'),
-                selected: _tab == 'chat'),
-          const Divider(),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
-            child: Text('БИБЛИОТЕКА',
-                style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
-          ),
-          if (_on('notes')) ...[
-          _drawerItem(Icons.lock_outline, 'Личное', () {
-                _go('notes');
-                setState(() {
-                  _filter = 'personal';
-                  _tag = null;
-                });
-              }, selected: _tab == 'notes' && _filter == 'personal'),
-          _drawerItem(Icons.group_outlined, 'Семейное', () {
-                _go('notes');
-                setState(() {
-                  _filter = 'family';
-                  _tag = null;
-                });
-              }, selected: _tab == 'notes' && _filter == 'family'),
-          _drawerItem(Icons.star_border, 'Избранное', () {
-                _go('notes');
-                setState(() {
-                  _filter = 'fav';
-                  _tag = null;
-                });
-              }, selected: _tab == 'notes' && _filter == 'fav'),
-          ],
-          if (sortedTags.isNotEmpty) ...[
-            const Divider(),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
-              child: Text('ТЕГИ',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
+              child: ListView(padding: EdgeInsets.zero, children: [
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(children: [
+                Avatar(s.author, s.settings.color, radius: 22),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(s.author,
+                      style: const TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w600)),
+                ),
+              ]),
             ),
-            for (final t in sortedTags)
-              ListTile(
-                leading: Icon(Icons.tag, color: tagColor(t)),
-                title: Text(t),
-                selected: _tag == t,
-                onTap: () {
-                  Navigator.pop(context);
-                  _go('notes');
-                  setState(() {
-                    _filter = 'all';
-                    _tag = t;
-                  });
-                },
-              ),
-          ],
-          const Divider(),
-          _drawerItem(Icons.settings_outlined, 'Настройки', () {
-            Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) =>
-                    SettingsScreen(
-              store: s, onTheme: widget.onTheme, onLogout: widget.onLogout)));
-          }),
+            _section('МОДУЛИ'),
+            if (_on('notes'))
+              _drawerItem(Icons.notes, 'Заметки', () {
+                setState(() {
+                  _folder = '';
+                  _folderSeq++;
+                  _tag = null;
+                });
+                _go('notes');
+              }, selected: _tab == 'notes'),
+            if (_on('shared'))
+              _drawerItem(
+                  Icons.folder_shared_outlined, 'Общая папка', () => _go('shared'),
+                  selected: _tab == 'shared'),
+            if (_on('calendar'))
+              _drawerItem(Icons.calendar_month_outlined, 'Календарь',
+                  () => _go('calendar'),
+                  selected: _tab == 'calendar'),
+            if (_on('pass'))
+              _drawerItem(Icons.key_outlined, 'Пароли', () => _go('pass'),
+                  selected: _tab == 'pass'),
+            if (_on('backup'))
+              _drawerItem(Icons.backup_outlined, 'Бэкап', () => _go('backup'),
+                  selected: _tab == 'backup'),
+            if (favFolders.isNotEmpty || favNotes.isNotEmpty) ...[
+              const Divider(),
+              _section('ИЗБРАННОЕ'),
+              for (final f in favFolders)
+                ListTile(
+                  leading: const Icon(Icons.folder_outlined),
+                  title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() {
+                      _folder = f.id;
+                      _folderSeq++;
+                      _tag = null;
+                    });
+                    _go('notes');
+                  },
+                ),
+              for (final n in favNotes)
+                ListTile(
+                  leading: const Icon(Icons.star_border),
+                  title: Text(n.title.isEmpty ? 'Без названия' : n.title,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(MaterialPageRoute<void>(
+                        builder: (_) => EditorScreen(store: s, note: n)));
+                  },
+                ),
+            ],
+            if (sortedTags.isNotEmpty) ...[
+              const Divider(),
+              _section('ТЕГИ'),
+              for (final t in sortedTags)
+                ListTile(
+                  leading: Icon(Icons.tag, color: tagColor(t)),
+                  title: Text(t),
+                  selected: _tag == t,
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() {
+                      _folder = '';
+                      _folderSeq++;
+                      _tag = t;
+                    });
+                    _go('notes');
+                  },
+                ),
+            ],
+          ])),
+          const Divider(height: 1),
+          _drawerItem(Icons.settings_outlined, 'Настройки', _openSettings),
           ListTile(
-            leading: Icon(Theme.of(context).brightness == Brightness.dark
-                ? Icons.light_mode_outlined
-                : Icons.dark_mode_outlined),
-            title: const Text('Переключить тему'),
+            leading: Icon(dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+            title: Text(dark ? 'Светлая тема' : 'Тёмная тема'),
             onTap: () {
-              final dark = Theme.of(context).brightness == Brightness.dark;
               s.settings.theme = dark ? 'light' : 'dark';
               s.saveSettings();
               widget.onTheme(s.settings.theme);
             },
           ),
-        ])),
-          _syncPanel(),
         ]),
       ),
     );
   }
 
-  void _syncNow() {
-    if (!s.settings.syncConfigured && !s.settings.googleConfigured) {
-      Navigator.pop(context);
-      Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => SettingsScreen(
-              store: s, onTheme: widget.onTheme, onLogout: widget.onLogout)));
-    } else {
-      s.syncAll();
+  /// Кнопка синхронизации в правом верхнем углу: во время работы нажатие останавливает.
+  Widget _syncButton() {
+    if (s.syncing) {
+      return IconButton(
+        tooltip: 'Остановить синхронизацию',
+        onPressed: s.cancelSync,
+        icon: Stack(alignment: Alignment.center, children: [
+          SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2, value: s.progress)),
+          const Icon(Icons.stop, size: 12),
+        ]),
+      );
     }
-  }
-
-  /// Внизу бокового меню: кнопка синхронизации и итог последней.
-  Widget _syncPanel() {
-    final last = s.lastSync;
-    final col = last == null
-        ? Pal.secondary(context)
-        : last.status == 'ok'
-            ? Pal.success(context)
-            : last.status == 'cancelled'
-                ? Pal.secondary(context)
-                : Pal.error(context);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-      decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: Pal.border(context), width: 0.5))),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        if (s.syncing) ...[
-          LinearProgressIndicator(value: s.progress),
-          const SizedBox(height: 6),
-          Text(s.progressText,
-              style: TextStyle(fontSize: 12, color: Pal.secondary(context))),
-          const SizedBox(height: 8),
-          OutlinedButton(onPressed: s.cancelSync, child: const Text('Отменить')),
-        ] else
-          FilledButton.icon(
-            onPressed: _syncNow,
-            icon: const Icon(Icons.sync),
-            label: const Text('Синхронизировать'),
-          ),
-        const SizedBox(height: 8),
-        if (last == null)
-          Text('Синхронизаций ещё не было',
-              style: TextStyle(fontSize: 12, color: Pal.secondary(context)))
-        else
-          Text('Последняя: ${last.when}\nСтатус: ${last.statusText}',
-              style: TextStyle(fontSize: 12, color: col)),
-      ]),
+    return IconButton(
+      icon: const Icon(Icons.sync),
+      tooltip: 'Синхронизировать',
+      onPressed: () {
+        if (!s.settings.syncConfigured && !s.settings.googleConfigured) {
+          _openSettings();
+        } else {
+          s.syncAll();
+        }
+      },
     );
   }
 
-  /// Страницы строятся лениво: модуль загружается при первом открытии,
-  /// а отключённый не загружается вовсе.
+  /// Слева от кнопки: процент и что сейчас происходит (или итог последней).
+  Widget _syncStatus() {
+    String text;
+    Color col = Pal.secondary(context);
+    if (s.syncing) {
+      final p = s.progress;
+      final pc = p == null ? '' : '${(p * 100).round()}% · ';
+      text = '$pc${s.progressText}';
+    } else {
+      final last = s.lastSync;
+      if (last == null) return const SizedBox.shrink();
+      text = last.status == 'ok' ? 'Синхронизировано ${last.when}' : last.statusText;
+      if (last.status != 'ok' && last.status != 'cancelled') col = Pal.error(context);
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 170),
+      child: Text(text,
+          maxLines: 2,
+          textAlign: TextAlign.right,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 11, height: 1.2, color: col)),
+    );
+  }
+
+  /// Страницы строятся лениво: модуль загружается при первом открытии.
   Widget _page(String m) {
     if (m != _tab && !_visited.contains(m)) return const SizedBox.shrink();
     switch (m) {
@@ -364,27 +373,37 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             ? NotesList(
                 key: const ValueKey('home'),
                 store: s,
-                filter: _filter,
-                tag: _tag,
+                filter: 'all',
+                tag: null,
                 home: true,
-                onClearTag: () => setState(() => _tag = null))
+                onOpenFolder: (id) {
+                  setState(() {
+                    _folder = id;
+                    _folderSeq++;
+                  });
+                  _go('notes');
+                },
+                onClearTag: () {})
             : _ModulesHome(mods: _mods, onOpen: _go);
       case 'notes':
         return NotesList(
-            key: const ValueKey('notes'),
+            key: ValueKey('notes$_folderSeq'),
             store: s,
-            filter: _filter,
+            filter: 'all',
             tag: _tag,
             home: false,
+            folder: _folder,
             onClearTag: () => setState(() => _tag = null));
+      case 'shared':
+        return SharedPage(store: s);
       case 'calendar':
         return CalendarPage(store: s);
       case 'pass':
         return _tab == 'pass'
             ? PassPage(store: s, pass: widget.pass)
             : const SizedBox.shrink();
-      case 'chat':
-        return ChatPage(store: s);
+      case 'backup':
+        return BackupPage(store: s);
       default:
         return const SizedBox.shrink();
     }
@@ -397,21 +416,6 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         index: mods.indexOf(_tab), children: [for (final m in mods) _page(m)]);
   }
 
-  static const _icons = {
-    'home': Icons.home_outlined,
-    'notes': Icons.notes,
-    'calendar': Icons.calendar_month_outlined,
-    'pass': Icons.key_outlined,
-    'chat': Icons.chat_bubble_outline,
-  };
-  static const _names = {
-    'home': 'Главная',
-    'notes': 'Заметки',
-    'calendar': 'Календарь',
-    'pass': 'Пароли',
-    'chat': 'Чаты',
-  };
-
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<CalEvent?>(
@@ -420,61 +424,34 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         if (alert != null) return _AlertView(event: alert);
         return AnimatedBuilder(
           animation: s,
-          builder: (context, _) => Scaffold(
-            appBar: AppBar(
-              title: Text(_title,
-                  style: const TextStyle(
-                      fontSize: 28, fontWeight: FontWeight.w700)),
-              actions: [
-                if (s.syncing)
-                  IconButton(
-                    tooltip: 'Отменить синхронизацию',
-                    onPressed: s.cancelSync,
-                    icon: const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2)),
-                  )
-                else
-                  IconButton(
-                    icon: const Icon(Icons.sync),
-                    tooltip: 'Синхронизировать',
-                    onPressed: () {
-                      if (!s.settings.syncConfigured &&
-                          !s.settings.googleConfigured) {
-                        Navigator.of(context).push(MaterialPageRoute<void>(
-                            builder: (_) => SettingsScreen(
-                                store: s,
-                                onTheme: widget.onTheme,
-                                onLogout: widget.onLogout)));
-                      } else {
-                        s.syncAll();
-                      }
-                    },
-                  ),
-              ],
-            ),
-            drawer: _drawer(),
-            body: Stack(children: [
-              _body(),
-              if (s.syncing)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: LinearProgressIndicator(value: s.progress, minHeight: 2),
-                ),
-              if (_tab == 'home' && _on('notes')) Fab(onPressed: _quickCreate),
-            ]),
-            bottomNavigationBar: NavigationBar(
-              selectedIndex: _mods.contains(_tab) ? _mods.indexOf(_tab) : 0,
-              onDestinationSelected: (i) => _go(_mods[i]),
-              destinations: [
-                for (final m in _mods)
-                  NavigationDestination(icon: Icon(_icons[m]), label: _names[m]!),
-              ],
-            ),
-          ),
+          builder: (context, _) {
+            final nav = _navMods;
+            return Scaffold(
+              appBar: AppBar(
+                title: Text(_title,
+                    style: const TextStyle(
+                        fontSize: 24, fontWeight: FontWeight.w700)),
+                actions: [
+                  Flexible(child: _syncStatus()),
+                  _syncButton(),
+                  const SizedBox(width: 4),
+                ],
+              ),
+              drawer: _drawer(),
+              body: Stack(children: [
+                _body(),
+                if (_tab == 'home' && _on('notes')) Fab(onPressed: _quickCreate),
+              ]),
+              bottomNavigationBar: NavigationBar(
+                selectedIndex: nav.contains(_tab) ? nav.indexOf(_tab) : 0,
+                onDestinationSelected: (i) => _go(nav[i]),
+                destinations: [
+                  for (final m in nav)
+                    NavigationDestination(icon: Icon(_icons[m]), label: _names[m]!),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -539,12 +516,14 @@ class _ModulesHome extends StatelessWidget {
     const names = {
       'calendar': 'Календарь',
       'pass': 'Пароли',
-      'chat': 'Чаты',
+      'shared': 'Общая папка',
+      'backup': 'Бэкап',
     };
     const icons = {
       'calendar': Icons.calendar_month_outlined,
       'pass': Icons.key_outlined,
-      'chat': Icons.chat_bubble_outline,
+      'shared': Icons.folder_shared_outlined,
+      'backup': Icons.backup_outlined,
     };
     final l = mods.where((m) => names.containsKey(m)).toList();
     if (l.isEmpty) {

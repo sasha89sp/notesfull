@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'comments_view.dart';
+import 'groups.dart';
 import 'hub.dart';
 import 'md_editor.dart';
 import 'media.dart';
@@ -78,7 +79,18 @@ class _EditorScreenState extends State<EditorScreen> {
     super.dispose();
   }
 
+  /// Куда можно положить заметку: только себе или в одну из общих папок.
+  List<MapEntry<String, String>> _vaults() => [
+        const MapEntry('personal', 'Только я'),
+        for (final g in s.settings.groups.where((g) => !g.removed))
+          MapEntry(g.vault, g.name.isEmpty ? 'Общая папка' : g.name),
+      ];
+
+  bool get _ro =>
+      n.isGroup && (Groups.byVault(s.settings, n.vault)?.readOnly ?? false);
+
   void _touch() {
+    if (_ro) return;
     n.updatedAt = nowMs();
     n.editor = s.author;
     _deb?.cancel();
@@ -274,23 +286,36 @@ class _EditorScreenState extends State<EditorScreen> {
             },
           ),
           const SizedBox(height: 4),
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(
-                  value: 'personal',
-                  label: Text('Только я'),
-                  icon: Icon(Icons.lock_outline)),
-              ButtonSegment(
-                  value: 'family',
-                  label: Text('Семья'),
-                  icon: Icon(Icons.group_outlined)),
-            ],
-            selected: {n.vault},
-            onSelectionChanged: (sel) {
-              setState(() => n.vault = sel.first);
-              _touch();
-            },
-          ),
+          if (_ro)
+            Container(
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Pal.card(context),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text('Создатель общей папки ограничил вам редактирование: изменения не сохраняются.'),
+            ),
+          Row(children: [
+            Icon(n.isGroup ? Icons.group_outlined : Icons.lock_outline,
+                size: 18, color: Pal.secondary(context)),
+            const SizedBox(width: 8),
+            DropdownButton<String>(
+              value: _vaults().any((v) => v.key == n.vault) ? n.vault : 'personal',
+              underline: const SizedBox.shrink(),
+              items: [
+                for (final v in _vaults())
+                  DropdownMenuItem(value: v.key, child: Text(v.value)),
+              ],
+              onChanged: _ro
+                  ? null
+                  : (v) {
+                      if (v == null) return;
+                      setState(() => n.vault = v);
+                      _touch();
+                    },
+            ),
+          ]),
           const SizedBox(height: 8),
           Wrap(children: [
             for (final t in n.tags)
@@ -535,7 +560,7 @@ class _EditorScreenState extends State<EditorScreen> {
       ),
       body: ReorderableListView(
         header: _header(),
-        footer: n.vault == 'family'
+        footer: n.isGroup
             ? CommentsView(store: s, note: n)
             : const SizedBox(height: 16),
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),

@@ -363,6 +363,9 @@ class Note {
         blocks = blocks ?? [],
         history = history ?? [];
 
+  /// Заметка общей папки (любой группы).
+  bool get isGroup => vault != 'personal';
+
   /// Идентификаторы вложений, на которые ссылаются блоки и Markdown-текст (`![](:/id)`).
   Set<String> attachmentIds() {
     final out = <String>{};
@@ -701,6 +704,71 @@ class PassEntry {
 
 // ---------------------------------------------------------------- Настройки
 
+/// Общая папка (группа): отдельное хранилище WebDAV, своя папка и свой ключ шифрования
+/// (тип 2). Внутри — общие заметки с комментариями и чат.
+class Group {
+  String id;
+  String name;
+  String url;
+  String user;
+  String pass;
+  String folder; // папка группы на сервере
+  String key; // base64, 32 байта: ключ шифрования группы
+  String owner; // profileId создателя
+  bool legacy; // группа из прежней версии («Семья»): заметки с vault = 'family'
+  bool removed; // владелец удалил меня из группы
+  bool readOnly; // владелец ограничил мне редактирование
+
+  Group({
+    required this.id,
+    this.name = '',
+    this.url = '',
+    this.user = '',
+    this.pass = '',
+    this.folder = '',
+    this.key = '',
+    this.owner = '',
+    this.legacy = false,
+    this.removed = false,
+    this.readOnly = false,
+  });
+
+  /// Значение Note.vault для заметок группы.
+  String get vault => legacy ? 'family' : 'g:$id';
+
+  String get notesDir => '$folder/FamilyShared';
+  String get chatDir => '$folder/chat';
+  String get profilesDir => '$folder/profiles';
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'url': url,
+        'user': user,
+        'pass': pass,
+        'folder': folder,
+        'key': key,
+        'owner': owner,
+        'legacy': legacy,
+        'removed': removed,
+        'readOnly': readOnly,
+      };
+
+  factory Group.fromJson(Map<String, dynamic> j) => Group(
+        id: (j['id'] ?? '') as String,
+        name: (j['name'] ?? '') as String,
+        url: (j['url'] ?? '') as String,
+        user: (j['user'] ?? '') as String,
+        pass: (j['pass'] ?? '') as String,
+        folder: (j['folder'] ?? '') as String,
+        key: (j['key'] ?? '') as String,
+        owner: (j['owner'] ?? '') as String,
+        legacy: (j['legacy'] ?? false) as bool,
+        removed: (j['removed'] ?? false) as bool,
+        readOnly: (j['readOnly'] ?? false) as bool,
+      );
+}
+
 class Settings {
   String url;
   String user;
@@ -723,6 +791,7 @@ class Settings {
   String gClientId;
   String gSecret;
   String gRefresh;
+  String gdRefresh; // токен Google Диска (отдельная область доступа)
   bool bio;
   bool wizardDone;
   int autoLock; // секунды (менеджер паролей)
@@ -737,7 +806,10 @@ class Settings {
   String grpUser;
   String grpPass;
   String grpFolder;
-  Map<String, bool> modules; // notes, calendar, pass, chat
+  Map<String, bool> modules; // notes, shared, calendar, pass, backup
+  List<Group> groups;
+  List<String> favorites; // id заметок и папок в избранном (меню слева)
+  List<String> pinned; // id заметок и папок, закреплённых на главной
   String bkStorage; // same — текущее хранилище, custom — отдельный WebDAV
   String bkUrl;
   String bkUser;
@@ -771,6 +843,7 @@ class Settings {
     this.gClientId = '',
     this.gSecret = '',
     this.gRefresh = '',
+    this.gdRefresh = '',
     this.bio = false,
     this.wizardDone = false,
     this.autoLock = 90,
@@ -786,6 +859,9 @@ class Settings {
     this.grpPass = '',
     this.grpFolder = '/ASRbox-Group',
     Map<String, bool>? modules,
+    List<Group>? groups,
+    List<String>? favorites,
+    List<String>? pinned,
     this.bkStorage = 'same',
     this.bkUrl = '',
     this.bkUser = '',
@@ -797,7 +873,11 @@ class Settings {
     this.bkLast = 0,
     this.settingsUpdatedAt = 0,
   })  : attDone = attDone ?? [],
-        modules = modules ?? {'notes': true, 'calendar': true, 'pass': true, 'chat': true};
+        groups = groups ?? [],
+        favorites = favorites ?? [],
+        pinned = pinned ?? [],
+        modules = modules ??
+            {'notes': true, 'shared': true, 'calendar': true, 'pass': true, 'backup': true};
 
   Map<String, dynamic> toJson() => {
         'url': url,
@@ -821,6 +901,7 @@ class Settings {
         'gClientId': gClientId,
         'gSecret': gSecret,
         'gRefresh': gRefresh,
+        'gdRefresh': gdRefresh,
         'bio': bio,
         'wizardDone': wizardDone,
         'autoLock': autoLock,
@@ -836,6 +917,9 @@ class Settings {
         'grpPass': grpPass,
         'grpFolder': grpFolder,
         'modules': modules,
+        'groups': groups.map((g) => g.toJson()).toList(),
+        'favorites': favorites,
+        'pinned': pinned,
         'bkStorage': bkStorage,
         'bkUrl': bkUrl,
         'bkUser': bkUser,
@@ -872,6 +956,7 @@ class Settings {
       gClientId: (j['gClientId'] ?? '') as String,
       gSecret: (j['gSecret'] ?? '') as String,
       gRefresh: (j['gRefresh'] ?? '') as String,
+      gdRefresh: (j['gdRefresh'] ?? '') as String,
       bio: (j['bio'] ?? false) as bool,
       wizardDone: (j['wizardDone'] ?? false) as bool,
       autoLock: (j['autoLock'] ?? 90) as int,
@@ -899,13 +984,20 @@ class Settings {
       bkDaily: (j['bkDaily'] ?? false) as bool,
       bkKeep: (j['bkKeep'] ?? 7) as int,
       bkLast: (j['bkLast'] ?? 0) as int,
+      groups: ((j['groups'] ?? []) as List)
+          .map((e) => Group.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+      favorites: ((j['favorites'] ?? []) as List).map((e) => e.toString()).toList(),
+      pinned: ((j['pinned'] ?? []) as List).map((e) => e.toString()).toList(),
       settingsUpdatedAt: (j['settingsUpdatedAt'] ?? 0) as int,
     );
   }
 
   bool get syncConfigured => storage == 'local'
       ? localPath.isNotEmpty
-      : url.isNotEmpty && user.isNotEmpty && pass.isNotEmpty;
+      : storage == 'gdrive'
+          ? gClientId.isNotEmpty && gSecret.isNotEmpty && gdRefresh.isNotEmpty
+          : url.isNotEmpty && user.isNotEmpty && pass.isNotEmpty;
   bool get groupConfigured => grpUrl.isNotEmpty && grpUser.isNotEmpty && grpPass.isNotEmpty;
   bool moduleOn(String m) => modules[m] ?? true;
   bool get googleConfigured =>

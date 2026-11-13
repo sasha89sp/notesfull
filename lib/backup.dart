@@ -6,6 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'applog.dart';
 import 'models.dart';
+import 'gdrive.dart';
 import 'remote.dart';
 import 'store.dart';
 import 'sync.dart';
@@ -49,6 +50,9 @@ class Backup {
   static (Remote, String) target(Store s) {
     final st = s.settings;
     final who = st.userId.isEmpty ? 'profile' : st.userId;
+    if (st.bkStorage == 'gdrive') {
+      return (GDriveRemote(st), '/ASRbox-Backups/$who');
+    }
     if (st.bkStorage == 'custom' && st.bkUrl.isNotEmpty) {
       final f = st.bkFolder.trim().isEmpty ? '/ASRbox-Backups' : st.bkFolder.trim();
       return (Dav(st.bkUrl, st.bkUser, st.bkPass), '${f.startsWith('/') ? f : '/$f'}/$who');
@@ -57,8 +61,9 @@ class Backup {
     return (r, '${SyncService.root}/backups/$who');
   }
 
-  static bool canUpload(Settings st) =>
-      st.bkStorage == 'custom' ? st.bkUrl.isNotEmpty && st.bkUser.isNotEmpty : st.syncConfigured;
+  static bool canUpload(Settings st) => st.bkStorage == 'gdrive'
+      ? st.gClientId.isNotEmpty && st.gdRefresh.isNotEmpty
+      : st.bkStorage == 'custom' ? st.bkUrl.isNotEmpty && st.bkUser.isNotEmpty : st.syncConfigured;
 
   static String _stamp() {
     final d = DateTime.now();
@@ -89,6 +94,14 @@ class Backup {
     }
     AppLog.I.i('backup', 'Бэкап загружен: $name (${bytes.length} байт)');
     return name;
+  }
+
+  /// Загрузка отдельного файла (экспорт данных телефона) в папку phone рядом с бэкапами.
+  static Future<void> uploadPhone(Store s, String name, List<int> bytes) async {
+    if (!canUpload(s.settings)) throw 'Не настроен сервер для бэкапов';
+    final (r, dir) = target(s);
+    await r.mkcolAll('$dir/phone');
+    await r.putAtomic('$dir/phone/$name', bytes);
   }
 
   /// Создать и сразу загрузить (без сохранения файла на устройство).

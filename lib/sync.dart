@@ -4,7 +4,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cryptography/cryptography.dart';
 import 'accounts.dart';
 import 'crypto.dart';
-import 'family.dart';
+import 'gdrive.dart';
+import 'groups.dart';
 import 'merge.dart';
 import 'models.dart';
 import 'pass_store.dart';
@@ -22,36 +23,18 @@ class SyncService {
   static String get personalDir =>
       userId.isEmpty ? '$root/personal' : '$root/users/$userId';
 
-  /// Корень общей/семейной группы: та же папка либо отдельный WebDAV (grp*).
-  static String groupRoot = '/MySecureApp';
-  static String get familyDir => '$groupRoot/FamilyShared';
-  static String get chatDir => '$groupRoot/chat';
-
   /// Привязать константы к настройкам текущего профиля.
   static void bind(Settings st) {
     final f = st.folder.trim();
     root = f.isEmpty ? '/MySecureApp' : (f.startsWith('/') ? f : '/$f');
     userId = st.userId;
-    if (st.groupConfigured) {
-      final g = st.grpFolder.trim();
-      groupRoot = g.isEmpty ? '/ASRbox-Group' : (g.startsWith('/') ? g : '/$g');
-    } else {
-      groupRoot = root;
-    }
-  }
-
-  /// Хранилище общей группы: отдельный WebDAV, если задан, иначе то же, что личное.
-  /// Так участники семьи могут быть авторизованы через разные WebDAV.
-  static Remote groupOf(Settings st) {
-    bind(st);
-    if (st.groupConfigured) return Dav(st.grpUrl, st.grpUser, st.grpPass);
-    return remoteOf(st);
   }
 
   /// Хранилище по настройкам: WebDAV или локальная папка.
   static Remote remoteOf(Settings st) {
     bind(st);
     if (st.storage == 'local') return LocalRemote(st.localPath);
+    if (st.storage == 'gdrive') return GDriveRemote(st);
     return Dav(st.url, st.user, st.pass);
   }
 
@@ -59,23 +42,14 @@ class SyncService {
     final st = s.settings;
     final dav = remoteOf(st);
     await dav.mkcolAll(root);
-    if (!st.groupConfigured) await dav.mkcol('$groupRoot/profiles');
     await dav.mkcol('$root/users');
     await dav.mkcol(personalDir);
     await _settingsSync(dav, s);
     tok.check();
-    final gdav = groupOf(st);
-    if (st.groupConfigured) {
-      await gdav.mkcolAll(groupRoot);
-      await gdav.mkcol('$groupRoot/profiles');
-    }
-    await FamilyKeys.ensureKeyPair(s);
-    await _putProfile(gdav, s);
-    await FamilyKeys.fetchMine(gdav, s);
     tok.check();
 
     // 1. Заметки (высокий приоритет)
-    await _scope(dav, s, 'personal', personalDir, s.syncKey!, r, tok);
+    await _scope(dav, s, 'personal', personalDir, s.syncKey!, null, r, tok);
     tok.check();
 
     // 2. События календаря (личные)
@@ -106,19 +80,22 @@ class SyncService {
     );
     tok.check();
 
-    final fk = await s.familyKey();
-    if (fk != null) {
-      await _scope(gdav, s, 'family', familyDir, fk, r, tok);
+    // 2в. Общие папки: у каждой свой WebDAV и ключ; сбой одной не мешает остальным
+    for (final g in List<Group>.of(st.groups)) {
       tok.check();
-      await _comments(gdav, s, fk, r, tok);
-      await _chat(gdav, s, fk, r, tok);
-    } else if (s.notes.any((n) => n.vault == 'family' && !n.deleted)) {
-      r.log.add('Общие заметки пропущены: нет семейного ключа, попросите владельца выдать доступ');
+      if (g.removed || g.key.isEmpty) continue;
+      try {
+        await _group(s, g, r, tok);
+      } on SyncCancelled {
+        rethrow;
+      } catch (e) {
+        r.log.add('Общая папка «${g.name}»: $e');
+      }
     }
     tok.check();
 
     // 3. Вложения (низкий приоритет)
-    await _attachments(dav, gdav, s, fk, r, tok);
+    await _attachments(dav, s, r, tok);
   }
 
   /// Внутренние настройки (календарь, ключи, модули…) едут вместе с аккаунтом:
@@ -194,40 +171,30 @@ class SyncService {
 
   // ---------------------------------------------------------------- профиль
 
-  static Future<void> _putProfile(Remote dav, Store s) async {
-    final st = s.settings;
-    await dav.put(
-      '$groupRoot/profiles/${st.profileId}.json',
-      utf8.encode(jsonEncode({
-        'uuid': st.profileId,
-        'name': s.author,
-        'color': st.color,
-        'pub': st.kpPub,
-        'created_at': nowMs(),
-      })),
-    );
-  }
-
-  static Future<List<Map<String, dynamic>>> members(Store s) async {
-    final st = s.settings;
-    final dav = groupOf(st);
-    final names = await dav.list('$groupRoot/profiles');
-    final out = <Map<String, dynamic>>[];
-    for (final n in names.where((e) => e.endsWith('.json'))) {
-      final b = await dav.get('$groupRoot/profiles/$n');
-      if (b == null) continue;
-      try {
-        out.add(Map<String, dynamic>.from(jsonDecode(utf8.decode(b)) as Map));
-      } catch (_) {}
+  /// Синхронизация одной общей папки: права, участники, заметки, комментарии, чат.
+  static Future<void> _group(Store s, Group g, SyncStats r, CancelToken tok) async {
+    final dav = Groups.remoteOf(g);
+    final key = Groups.keyOf(g);
+    await dav.mkcolAll(g.folder);
+    await dav.mkcol(g.profilesDir);
+    await Groups.applyAcl(dav, g, s);
+    if (g.removed) {
+      r.log.add('Вас удалили из общей папки «${g.name}»');
+      await s.saveSettings(touch: false);
+      return;
     }
-    return out;
+    await Groups.putProfile(dav, g, s);
+    await _scope(dav, s, g.vault, g.notesDir, key, g, r, tok);
+    tok.check();
+    await _comments(dav, s, g, key, r, tok);
+    await _chat(dav, s, g, key, r, tok);
   }
 
   // ---------------------------------------------------------------- заметки
 
   static Future<void> _scope(Remote dav, Store s, String vault, String dir,
-      SecretKey key, SyncStats r, CancelToken tok) async {
-    final kind = vault == 'family' ? 'family' : 'notes';
+      SecretKey key, Group? grp, SyncStats r, CancelToken tok) async {
+    final kind = vault == 'personal' ? 'notes' : 'family';
     await dav.mkcol(dir);
 
     final manifest = <String, int>{};
@@ -288,6 +255,7 @@ class SyncService {
     for (final n in List<Note>.of(s.notes)) {
       tok.check();
       if (n.vault != vault) continue;
+      if (grp != null && grp.readOnly) continue; // владелец ограничил редактирование
       final inManifest = manifest.containsKey(n.id);
       if (inManifest && n.updatedAt <= n.syncedAt) continue;
 
@@ -413,10 +381,11 @@ class SyncService {
   // ---------------------------------------------------------------- комментарии
 
   static Future<void> _comments(
-      Remote dav, Store s, SecretKey fk, SyncStats r, CancelToken tok) async {
+      Remote dav, Store s, Group g, SecretKey fk, SyncStats r, CancelToken tok) async {
     final famNotes =
-        s.notes.where((n) => n.vault == 'family' && !n.deleted).toList();
+        s.notes.where((n) => n.vault == g.vault && !n.deleted).toList();
     if (famNotes.isEmpty) return;
+    final familyDir = g.notesDir;
     await dav.mkcol('$familyDir/comments');
 
     for (final n in famNotes) {
@@ -492,16 +461,15 @@ class SyncService {
     }
   }
 
-  /// Чат: каждое сообщение — отдельный файл, зашифрованный семейным ключом.
+  /// Чат группы: каждое сообщение — отдельный файл, зашифрованный ключом группы.
   static Future<void> _chat(
-      Remote g, Store s, SecretKey fk, SyncStats r, CancelToken tok) async {
-    if (!s.settings.moduleOn('chat')) return;
+      Remote g, Store s, Group grp, SecretKey fk, SyncStats r, CancelToken tok) async {
     await s.ensureChat();
-    const room = 'general';
-    final dir = '$chatDir/$room';
+    final room = grp.id;
+    final dir = '${grp.chatDir}/$room';
     var changed = false;
-    final unsent = s.chat.where((m) => !m.synced).toList();
-    if (unsent.isNotEmpty) {
+    final unsent = s.chat.where((m) => m.room == room && !m.synced).toList();
+    if (unsent.isNotEmpty && !grp.readOnly) {
       await g.mkcolAll(dir);
       for (final m in unsent) {
         tok.check();
@@ -513,7 +481,7 @@ class SyncService {
       }
     }
     final names = (await g.list(dir)).where((n) => n.endsWith('.enc')).toList()..sort();
-    final have = s.chat.map((m) => m.id).toSet();
+    final have = s.chat.where((m) => m.room == room).map((m) => m.id).toSet();
     for (final n in names.reversed.take(300)) {
       tok.check();
       final id = n.substring(0, n.length - 4).split('_').last;
@@ -523,12 +491,13 @@ class SyncService {
       try {
         final m = ChatMsg.fromJson(Map<String, dynamic>.from(
             jsonDecode(utf8.decode(await Crypto.decrypt(fk, b))) as Map));
+        m.room = room;
         m.synced = true;
         s.chat.add(m);
         changed = true;
         r.d('chat');
       } catch (_) {
-        // чужой ключ или повреждённый файл — пропускаем
+        // повреждённый файл — пропускаем
       }
     }
     if (changed) {
@@ -538,18 +507,14 @@ class SyncService {
     }
   }
 
-  /// Лёгкое обновление только чата (опрос из экрана чата).
-  static Future<void> chatOnly(Store s) async {
-    final st = s.settings;
-    if (!st.syncConfigured && !st.groupConfigured) return;
-    final fk = await s.familyKey();
-    if (fk == null) return;
-    final g = groupOf(st);
-    await _chat(g, s, fk, SyncStats(), CancelToken());
+  /// Лёгкое обновление только чата одной группы (опрос из экрана чата).
+  static Future<void> chatOnly(Store s, Group g) async {
+    if (g.removed || g.key.isEmpty) return;
+    await _chat(Groups.remoteOf(g), s, g, Groups.keyOf(g), SyncStats(), CancelToken());
   }
 
   static Future<void> _attachments(
-      Remote dav, Remote gdav, Store s, SecretKey? fk, SyncStats r, CancelToken tok) async {
+      Remote dav, Store s, SyncStats r, CancelToken tok) async {
     final mode = s.settings.attMode;
     if (mode == 'off') return;
     if (mode == 'wifi' && !await _onWifi()) return;
@@ -559,11 +524,17 @@ class SyncService {
     for (final n in List<Note>.of(s.notes)) {
       tok.check();
       if (n.deleted) continue;
-      final family = n.vault == 'family';
-      final key = family ? fk : s.syncKey;
+      Remote rm = dav;
+      SecretKey? key = s.syncKey;
+      var dir = '$personalDir/attachments';
+      if (n.isGroup) {
+        final g = Groups.byVault(s.settings, n.vault);
+        if (g == null || g.removed || g.key.isEmpty) continue;
+        rm = Groups.remoteOf(g);
+        key = Groups.keyOf(g);
+        dir = '${g.notesDir}/attachments';
+      }
       if (key == null) continue;
-      final dir = '${family ? familyDir : personalDir}/attachments';
-      final rm = family ? gdav : dav;
       var dirMade = false;
 
       for (final id in n.attachmentIds()) {
