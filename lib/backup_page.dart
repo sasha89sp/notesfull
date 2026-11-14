@@ -217,6 +217,17 @@ class _BackupPageState extends State<BackupPage> {
         return '${ok ? 'Сохранено в файл' : 'Сохранение отменено'} (облако не настроено): ${r.info}';
       });
 
+  /// Восстановление из архива телефона одной кнопкой: выбрать файл (.zip или .zip.enc)
+  /// и вернуть контакты, звонки, SMS, Wi-Fi.
+  Future<void> _phoneRestore() async {
+    final r = await FilePicker.platform.pickFiles(type: FileType.any, withData: true);
+    if (r == null || r.files.isEmpty) return;
+    final f = r.files.first;
+    final List<int>? bytes = f.bytes ?? (f.path != null ? await File(f.path!).readAsBytes() : null);
+    if (bytes == null) return;
+    await _run('Восстановление телефона', () => PhoneData.restoreArchive(s, bytes));
+  }
+
   Widget _sectionHead(String title, String sub, IconData icon) => Padding(
         padding: const EdgeInsets.fromLTRB(2, 8, 2, 10),
         child: Row(children: [
@@ -314,6 +325,15 @@ class _BackupPageState extends State<BackupPage> {
           child: Text('Бэкап телефона доступен только в Android-версии.'),
         )
       else ...[
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: _busy ? null : _phoneRestore,
+            icon: const Icon(Icons.settings_backup_restore),
+            label: const Text('Восстановить из архива телефона'),
+          ),
+        ),
+        const SizedBox(height: 8),
         AppCard(
           child: Padding(
             padding: const EdgeInsets.all(14),

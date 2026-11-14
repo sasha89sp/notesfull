@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:flutter/services.dart';
 import 'applog.dart';
@@ -221,6 +222,60 @@ class PhoneData {
     } finally {
       _busy = false;
     }
+  }
+
+  /// Восстановление из архива телефона (zip или зашифрованный .zip.enc).
+  /// Возвращает отчёт для показа пользователю.
+  static Future<String> restoreArchive(Store s, List<int> raw) async {
+    var bytes = raw;
+    final isZip = bytes.length > 3 && bytes[0] == 0x50 && bytes[1] == 0x4B;
+    if (!isZip) {
+      if (s.syncKey == null) throw 'Архив зашифрован, а ключ профиля недоступен';
+      try {
+        bytes = await Crypto.decrypt(s.syncKey!, Uint8List.fromList(raw));
+      } catch (_) {
+        throw 'Не удалось расшифровать архив: он сделан под другим профилем/паролем';
+      }
+    }
+    final ar = ZipDecoder().decodeBytes(bytes);
+    List<dynamic>? read(String n) {
+      for (final f in ar.files) {
+        if (f.isFile && f.name == n) {
+          return jsonDecode(utf8.decode(f.content as List<int>)) as List<dynamic>;
+        }
+      }
+      return null;
+    }
+
+    if (!ar.files.any((f) => f.name == 'manifest.json')) throw 'Это не архив данных телефона';
+    final done = <String>[];
+    final skipped = <String>[];
+    Future<void> part(String file, String group, String label, Future<int> Function(List<dynamic>) put) async {
+      final l = read(file);
+      if (l == null) return;
+      if (!await hasPerms(group) && !await requestPerms(group)) {
+        skipped.add('$label (нет разрешения)');
+        return;
+      }
+      try {
+        done.add('$label ${await put(l)} из ${l.length}');
+      } catch (e) {
+        skipped.add('$label ($e)');
+      }
+    }
+
+    await part('contacts.json', 'contacts', 'контакты', importContacts);
+    await part('calls.json', 'calls', 'звонки', importCalls);
+    await part('sms.json', 'sms', 'SMS', importSms);
+    await part('wifi.json', 'wifi', 'Wi-Fi', importWifi);
+    AppLog.I.i('backup', 'Восстановление телефона: ${done.join(', ')}');
+    final sb = StringBuffer(done.isEmpty ? 'Ничего не восстановлено.' : 'Восстановлено: ${done.join(', ')}.');
+    if (skipped.isNotEmpty) sb.write(' Пропущено: ${skipped.join(', ')}.');
+    if (read('sms.json') != null) {
+      sb.write(' SMS записываются только если ASRbox — приложение для SMS по умолчанию; '
+          'Wi-Fi пароли Android 10+ не даёт вернуть без системного диалога.');
+    }
+    return sb.toString();
   }
 
   /// По расписанию (пока приложение открыто): без запроса разрешений.

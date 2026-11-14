@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'backup.dart';
 import 'backup_page.dart';
+import 'bg_sync.dart';
 import 'calendar_page.dart';
 import 'desktop.dart';
 import 'desktop_notes.dart';
@@ -58,6 +59,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     s.syncAll();
     s.warmSearch();
+    if (BgSync.available) BgSync.apply(s.settings.bgSync);
     Backup.autoIfDue(s);
     PhoneData.autoIfDue(s);
     _timer = Timer.periodic(const Duration(minutes: 30), (_) {
@@ -340,6 +342,78 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     );
   }
 
+  /// Компактная левая панель для компьютера: модули, корзина, настройки, тема, вид.
+  Widget _rail() {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+    final mods = _mods.where((m) => !(m == 'home' && _on('notes'))).toList();
+    Widget item(IconData icon, String label, VoidCallback f, {bool sel = false}) => InkWell(
+          onTap: f,
+          child: Container(
+            color: sel ? cs.primary.withOpacity(0.14) : null,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(children: [
+              Icon(icon, size: 18, color: sel ? cs.primary : null),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13, fontWeight: sel ? FontWeight.w600 : FontWeight.w400))),
+            ]),
+          ),
+        );
+    return SizedBox(
+      width: 168,
+      child: Container(
+        color: dark ? const Color(0xFF1C1C1E) : const Color(0xFFF7F7FA),
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            child: Row(children: [
+              Avatar(s.author, s.settings.color, radius: 13),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: Text(s.author,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+            ]),
+          ),
+          for (final m in mods)
+            item(_icons[m]!, _names[m]!, () {
+              if (m == 'notes') {
+                setState(() {
+                  _folder = '';
+                  _folderSeq++;
+                  _tag = null;
+                });
+              }
+              _go(m);
+            }, sel: _tab == m || (m == 'notes' && _tab == 'home')),
+          const Spacer(),
+          const Divider(height: 1),
+          if (_on('notes'))
+            item(Icons.delete_outline, 'Корзина', () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => TrashScreen(store: s)))),
+          item(Icons.settings_outlined, 'Настройки', _openSettings),
+          item(dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+              dark ? 'Светлая тема' : 'Тёмная тема', () {
+            s.settings.theme = dark ? 'light' : 'dark';
+            s.saveSettings();
+            widget.onTheme(s.settings.theme);
+          }),
+          item(Icons.smartphone, 'Вид: телефон', () {
+            s.settings.uiMode = 'mobile';
+            s.saveSettings();
+            s.refresh();
+          }),
+          const SizedBox(height: 6),
+        ]),
+      ),
+    );
+  }
+
   /// Кнопка синхронизации в правом верхнем углу: во время работы нажатие останавливает.
   Widget _syncButton() {
     if (s.syncing) {
@@ -420,7 +494,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             : _ModulesHome(mods: _mods, onOpen: _go);
       case 'notes':
         // десктоп с широким окном: три колонки, как в Joplin
-        if (isDesktop && MediaQuery.of(context).size.width >= 900) {
+        if (s.useDesktop(MediaQuery.of(context).size.width)) {
           return DesktopNotes(
               key: ValueKey('dn$_folderSeq'),
               store: s,
@@ -440,7 +514,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         return CalendarPage(store: s);
       case 'pass':
         return _tab == 'pass'
-            ? _gate('pass', PassPage(store: s, pass: widget.pass))
+            ? _gate('pass', PassPage(store: s, pass: widget.pass, desktop: s.useDesktop(MediaQuery.of(context).size.width)))
             : const SizedBox.shrink();
       case 'backup':
         return BackupPage(store: s);
@@ -495,13 +569,26 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           animation: s,
           builder: (context, _) {
             final nav = _navMods;
+            final desk = s.useDesktop(MediaQuery.of(context).size.width);
+            if (desk && _tab == 'home' && _on('notes')) {
+              _tab = 'notes';
+              _visited.add('notes');
+            }
+            if (desk) {
+              return Scaffold(
+                body: Row(children: [
+                  _rail(),
+                  const VerticalDivider(width: 1),
+                  Expanded(child: _body()),
+                ]),
+              );
+            }
             return Scaffold(
               appBar: AppBar(
                 title: Text(_title,
                     style: const TextStyle(
                         fontSize: 24, fontWeight: FontWeight.w700)),
                 actions: [
-                  Flexible(child: _syncStatus()),
                   _syncButton(),
                   const SizedBox(width: 4),
                 ],

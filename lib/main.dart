@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show PlatformDispatcher;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'applog.dart';
 import 'autofill.dart';
@@ -10,7 +12,9 @@ import 'lock.dart';
 import 'notify.dart';
 import 'pass_store.dart';
 import 'shell.dart';
+import 'status_strip.dart';
 import 'store.dart';
+import 'transfer_screen.dart';
 
 Future<void> main() async {
   runZonedGuarded(() async {
@@ -154,11 +158,58 @@ class _AppState extends State<App> {
       builder: (context, child) => AnimatedBuilder(
         animation: store,
         builder: (context, _) {
-          final sc = _unlocked ? store.settings.fontScale : 1.0;
           final mq = MediaQuery.of(context);
+          final desk = _unlocked && store.useDesktop(mq.size.width);
+          // в режиме компьютера всё мельче и плотнее; масштаб настраивается
+          final sc = _unlocked ? store.settings.fontScale * (desk ? 0.88 : 1.0) : 1.0;
+          final strip = _unlocked && widget.autofill == null && StatusStrip.visible(store);
+          Widget body = Column(children: [
+            Expanded(
+                child: strip
+                    ? MediaQuery.removeViewPadding(
+                        context: context,
+                        removeBottom: true,
+                        child: child ?? const SizedBox.shrink())
+                    : (child ?? const SizedBox.shrink())),
+            if (_unlocked && widget.autofill == null)
+              StatusStrip(
+                  store: store,
+                  compact: desk,
+                  onOpen: () => navKey.currentState?.push(MaterialPageRoute<void>(
+                      builder: (_) => TransferScreen(store: store)))),
+          ]);
+          if (desk) {
+            body = Theme(
+                data: Theme.of(context).copyWith(visualDensity: VisualDensity.compact),
+                child: body);
+            // Ctrl + колесо мыши и Ctrl +/−/0 — масштаб интерфейса
+            void zoom(double d) {
+              store.settings.fontScale =
+                  d == 0 ? 1.0 : (store.settings.fontScale + d).clamp(0.7, 1.6);
+              store.saveSettings();
+              store.refresh();
+            }
+
+            body = CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.equal, control: true): () => zoom(0.1),
+                const SingleActivator(LogicalKeyboardKey.add, control: true): () => zoom(0.1),
+                const SingleActivator(LogicalKeyboardKey.minus, control: true): () => zoom(-0.1),
+                const SingleActivator(LogicalKeyboardKey.digit0, control: true): () => zoom(0),
+              },
+              child: Listener(
+                onPointerSignal: (e) {
+                  if (e is PointerScrollEvent && HardwareKeyboard.instance.isControlPressed) {
+                    zoom(e.scrollDelta.dy < 0 ? 0.05 : -0.05);
+                  }
+                },
+                child: Focus(autofocus: false, child: body),
+              ),
+            );
+          }
           return MediaQuery(
               data: mq.copyWith(textScaler: TextScaler.linear(mq.textScaler.scale(1) * sc)),
-              child: child ?? const SizedBox.shrink());
+              child: body);
         },
       ),
       home: home,

@@ -35,6 +35,7 @@ class Backup {
       var rel = e.path.substring(base.length).replaceAll('\\', '/');
       if (rel.startsWith('/')) rel = rel.substring(1);
       if (rel.endsWith('.tmp') || rel.endsWith('.bak') || rel == 'applog.txt') continue;
+      if (rel.startsWith('safety/')) continue; // страховочные копии не кладём в бэкап
       files[rel] = await e.readAsBytes();
       count++;
       if (count % 50 == 0) await Future<void>.delayed(Duration.zero);
@@ -42,6 +43,60 @@ class Backup {
     AppLog.I.i('backup', 'Бэкап: файлов $count');
     // упаковка в отдельном потоке, чтобы интерфейс не подвисал
     return compute(_zipIso, files);
+  }
+
+  // ------------------------------------------------- страховочные копии
+
+  static const int safetyKeep = 5;
+
+  static Directory safetyDir(Store s) =>
+      Directory('${s.baseDir.path}${Platform.pathSeparator}safety');
+
+  /// Автоматическая копия во внутреннюю папку перед рискованным действием
+  /// (сброс, восстановление, импорт). Хранятся последние [safetyKeep] штук.
+  /// Возвращает путь или null, если сделать копию не удалось.
+  static Future<String?> safetyCopy(Store s, String reason) async {
+    try {
+      final bytes = await create(s);
+      final d = safetyDir(s);
+      await d.create(recursive: true);
+      final f = File('${d.path}${Platform.pathSeparator}${_stamp()}_$reason.zip');
+      await f.writeAsBytes(bytes, flush: true);
+      final all = await listSafety(s);
+      for (var i = safetyKeep; i < all.length; i++) {
+        try {
+          await all[i].delete();
+        } catch (_) {}
+      }
+      AppLog.I.i('backup', 'Страховочная копия ($reason): ${f.path}');
+      return f.path;
+    } catch (e, stk) {
+      AppLog.I.e('backup', 'Страховочная копия не создана: $e', stk);
+      return null;
+    }
+  }
+
+  /// Страховочные копии, новые первыми.
+  static Future<List<File>> listSafety(Store s) async {
+    final d = safetyDir(s);
+    if (!await d.exists()) return [];
+    final l = <File>[];
+    await for (final e in d.list(followLinks: false)) {
+      if (e is File && e.path.endsWith('.zip')) l.add(e);
+    }
+    l.sort((a, b) => b.path.compareTo(a.path));
+    return l;
+  }
+
+  /// Человекочитаемая подпись: «14.11.2026 10:15 · перед сбросом».
+  static String safetyLabel(File f) {
+    final n = f.uri.pathSegments.last.replaceAll('.zip', '');
+    final p = n.split('_');
+    if (p.length < 3) return n;
+    final d = p[0], t = p[1];
+    final why = {'reset': 'перед сбросом', 'restore': 'перед восстановлением', 'joplin': 'перед импортом Joplin'}[p[2]] ?? p[2];
+    if (d.length != 8 || t.length != 6) return n;
+    return '${d.substring(6)}.${d.substring(4, 6)}.${d.substring(0, 4)} ${t.substring(0, 2)}:${t.substring(2, 4)} · $why';
   }
 
   // ---------------------------------------------------------- WebDAV
@@ -289,6 +344,9 @@ class Jex {
     }
     return b.toString().trimRight();
   }
+
+  /// Строки Markdown заметки без вложений (для PDF).
+  static List<String> bodyLines(Note n) => bodyOf(n, (b) => null).split('\n');
 
   /// Блоки заметки → Markdown. [resId] выдаёт ссылку на вложение по id вложения.
   static String bodyOf(Note n, String? Function(Block b) resId,

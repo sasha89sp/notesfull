@@ -32,7 +32,6 @@ class NotesList extends StatefulWidget {
 
 class _NotesListState extends State<NotesList> {
   String _q = '';
-  String _seg = 'all'; // all | notes | tables
   String _cur = ''; // текущая папка заметок
   final _search = TextEditingController();
 
@@ -467,13 +466,6 @@ class _NotesListState extends State<NotesList> {
         if (widget.tag != null) {
           list = list.where((n) => n.tags.contains(widget.tag)).toList();
         }
-        if (!widget.home) {
-          if (_seg == 'notes') {
-            list = list.where((n) => !n.hasTable).toList();
-          } else if (_seg == 'tables') {
-            list = list.where((n) => n.hasTable).toList();
-          }
-        }
         if (_q.isNotEmpty) {
           final q = _q.toLowerCase();
           list = list.where((n) => s.matches(n, q)).toList();
@@ -532,22 +524,6 @@ class _NotesListState extends State<NotesList> {
                 onChanged: (v) => setState(() => _q = v),
               ),
             ),
-            if (!widget.home)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'all', label: Text('Все')),
-                      ButtonSegment(value: 'notes', label: Text('Заметки')),
-                      ButtonSegment(value: 'tables', label: Text('Таблицы')),
-                    ],
-                    selected: {_seg},
-                    onSelectionChanged: (v) => setState(() => _seg = v.first),
-                  ),
-                ),
-              ),
             if (widget.tag != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),

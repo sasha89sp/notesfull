@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'ctx_menu.dart';
 import 'models.dart';
+import 'panes.dart';
 import 'pass_io.dart';
 import 'pass_store.dart';
 import 'store.dart';
@@ -125,7 +128,8 @@ Future<String?> showGenerator(BuildContext context) {
 class PassPage extends StatefulWidget {
   final Store store;
   final PassStore pass;
-  const PassPage({super.key, required this.store, required this.pass});
+  final bool desktop; // трёхблочный вид для компьютера
+  const PassPage({super.key, required this.store, required this.pass, this.desktop = false});
   @override
   State<PassPage> createState() => _PassPageState();
 }
@@ -140,6 +144,9 @@ class _PassPageState extends State<PassPage> {
   int _saveMin = 30; // -1 — до выхода из профиля
   String _folder = '\u0000all'; // \u0000all | \u0000fav | имя папки
   String _q = '';
+  PassEntry? _sel; // выбранная запись (десктоп)
+  bool _selNew = false;
+  int _selSeq = 0;
 
   PassStore get p => widget.pass;
 
@@ -559,6 +566,256 @@ class _PassPageState extends State<PassPage> {
     ]);
   }
 
+  // ------------------------------------------------------------ десктоп: три блока
+
+  List<PassEntry> _filtered() {
+    var list = p.visible;
+    if (_folder == '\u0000fav') {
+      list = list.where((e) => e.favorite).toList();
+    } else if (_folder == '\u0000none') {
+      list = list.where((e) => e.folder.isEmpty).toList();
+    } else if (_folder != '\u0000all') {
+      list = list.where((e) => e.folder == _folder).toList();
+    }
+    if (_q.isNotEmpty) {
+      final q = _q.toLowerCase();
+      list = list
+          .where((e) =>
+              e.title.toLowerCase().contains(q) ||
+              e.username.toLowerCase().contains(q) ||
+              e.url.toLowerCase().contains(q))
+          .toList();
+    }
+    list.sort((a, b) {
+      if (a.favorite != b.favorite) return a.favorite ? -1 : 1;
+      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    });
+    return list;
+  }
+
+  Widget _dRow(IconData icon, String label, String key, {String? folderName}) {
+    final sel = _folder == key;
+    final cs = Theme.of(context).colorScheme;
+    return CtxArea(
+      onTap: () => setState(() => _folder = key),
+      onMenu: (pos) async {
+        if (folderName == null) {
+          final a = await showCtx(context, pos, const [CtxItem('new', 'Новая папка', icon: Icons.create_new_folder_outlined)]);
+          if (a == 'new') await _newFolder();
+          return;
+        }
+        final a = await showCtx(context, pos, const [
+          CtxItem('ren', 'Переименовать', icon: Icons.edit_outlined),
+          CtxItem('-', ''),
+          CtxItem('del', 'Удалить папку (записи сохранятся)', icon: Icons.delete_outline, danger: true),
+        ]);
+        if (a == 'ren') {
+          final n = await _askName('Переименовать папку', folderName);
+          if (n != null) {
+            p.renameFolder(folderName, n);
+            if (_folder == folderName) setState(() => _folder = n);
+          }
+        } else if (a == 'del') {
+          p.deleteFolder(folderName);
+          if (_folder == folderName) setState(() => _folder = '\u0000all');
+        }
+      },
+      child: Container(
+        color: sel ? cs.primary.withOpacity(0.14) : null,
+        padding: const EdgeInsets.fromLTRB(8, 4, 6, 4),
+        child: Row(children: [
+          Icon(icon, size: 15, color: sel ? cs.primary : null),
+          const SizedBox(width: 6),
+          Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5))),
+        ]),
+      ),
+    );
+  }
+
+  Widget _dSide() => ListView(padding: const EdgeInsets.symmetric(vertical: 4), children: [
+        _dRow(Icons.vpn_key_outlined, 'Все записи', '\u0000all'),
+        _dRow(Icons.star_border, 'Избранное', '\u0000fav'),
+        _dRow(Icons.folder_off_outlined, 'Без папки', '\u0000none'),
+        for (final f in p.folderNames) _dRow(Icons.folder_outlined, f, f, folderName: f),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 4, 2),
+          child: TextButton.icon(
+            style: TextButton.styleFrom(visualDensity: VisualDensity.compact, textStyle: const TextStyle(fontSize: 12)),
+            onPressed: _newFolder,
+            icon: const Icon(Icons.create_new_folder_outlined, size: 15),
+            label: const Text('Новая папка'),
+          ),
+        ),
+      ]);
+
+  Future<void> _entryMenu(PassEntry e, Offset pos) async {
+    final a = await showCtx(context, pos, [
+      const CtxItem('open', 'Открыть', icon: Icons.open_in_new),
+      const CtxItem('user', 'Копировать логин', icon: Icons.person_outline),
+      const CtxItem('pass', 'Копировать пароль', icon: Icons.key_outlined),
+      if (e.url.trim().isNotEmpty) const CtxItem('url', 'Открыть сайт', icon: Icons.language),
+      CtxItem('fav', e.favorite ? 'Убрать из избранного' : 'В избранное',
+          icon: e.favorite ? Icons.star : Icons.star_border),
+      const CtxItem('-', ''),
+      const CtxItem('del', 'Удалить', icon: Icons.delete_outline, danger: true),
+    ]);
+    if (a == null || !mounted) return;
+    switch (a) {
+      case 'open':
+        setState(() {
+          _sel = e;
+          _selNew = false;
+          _selSeq++;
+        });
+        break;
+      case 'user':
+        copyClear(e.username);
+        toast(context, 'Логин скопирован (очистится через 30 с)');
+        break;
+      case 'pass':
+        copyClear(e.password);
+        toast(context, 'Пароль скопирован (очистится через 30 с)');
+        break;
+      case 'url':
+        var u = e.url.trim();
+        if (!u.contains('://')) u = 'https://$u';
+        await launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication);
+        break;
+      case 'fav':
+        e.favorite = !e.favorite;
+        e.updatedAt = nowMs();
+        p.changed();
+        break;
+      case 'del':
+        e.deleted = true;
+        e.updatedAt = nowMs();
+        p.changed();
+        if (_sel?.id == e.id) setState(() => _sel = null);
+        break;
+    }
+  }
+
+  Widget _dList() {
+    final list = _filtered();
+    final sec = Pal.secondary(context);
+    final cs = Theme.of(context).colorScheme;
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(8, 6, 0, 4),
+        child: Row(children: [
+          Expanded(
+            child: TextField(
+              controller: _search,
+              style: const TextStyle(fontSize: 13),
+              onChanged: (v) => setState(() => _q = v),
+              decoration: const InputDecoration(
+                  isDense: true, hintText: 'Поиск', prefixIcon: Icon(Icons.search, size: 16)),
+            ),
+          ),
+          IconButton(
+              tooltip: 'Новая запись',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => setState(() {
+                _sel = PassEntry.create();
+                _selNew = true;
+                _selSeq++;
+              }),
+              icon: const Icon(Icons.add, size: 20)),
+          PopupMenuButton<String>(
+            iconSize: 18,
+            padding: EdgeInsets.zero,
+            onSelected: (v) {
+              if (v == 'lock') {
+                p.forgetSaved();
+                p.lock();
+              } else if (v == 'forget') {
+                p.forgetSaved();
+                toast(context, 'Сохранённый пароль забыт');
+              } else if (v == 'imp') {
+                _import();
+              } else {
+                _export(v);
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'imp', child: Text('Импорт…')),
+              const PopupMenuItem(value: 'csv', child: Text('Экспорт CSV')),
+              const PopupMenuItem(value: 'bwjson', child: Text('Экспорт Bitwarden JSON')),
+              const PopupMenuItem(value: 'bwcsv', child: Text('Экспорт Bitwarden CSV')),
+              const PopupMenuItem(value: 'kp', child: Text('Экспорт KeePass XML')),
+              if (p.savedActive) const PopupMenuItem(value: 'forget', child: Text('Забыть сохранённый пароль')),
+              const PopupMenuItem(value: 'lock', child: Text('Заблокировать')),
+            ],
+          ),
+        ]),
+      ),
+      Expanded(
+        child: list.isEmpty
+            ? Center(child: Text('Записей нет', style: TextStyle(color: sec, fontSize: 12.5)))
+            : ListView.builder(
+                itemCount: list.length,
+                itemExtent: 44,
+                itemBuilder: (_, i) {
+                  final e = list[i];
+                  final sel = _sel?.id == e.id;
+                  return CtxArea(
+                    onTap: () => setState(() {
+                      _sel = e;
+                      _selNew = false;
+                      _selSeq++;
+                    }),
+                    onMenu: (pos) => _entryMenu(e, pos),
+                    child: Container(
+                      color: sel ? cs.primary.withOpacity(0.14) : null,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Row(children: [
+                        Avatar(e.title, 0xFF5856D6, radius: 12),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(e.title.isEmpty ? 'Без названия' : e.title,
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5)),
+                            Text(e.username, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: sec, fontSize: 11)),
+                          ]),
+                        ),
+                        if (e.favorite) const Icon(Icons.star, size: 12, color: Color(0xFFFF9500)),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+      ),
+    ]);
+  }
+
+  Widget _dDetail() {
+    final e = _sel;
+    if (e == null || (e.deleted && !_selNew)) {
+      return Center(
+          child: Text('Выберите запись или создайте новую',
+              style: TextStyle(color: Pal.secondary(context), fontSize: 13)));
+    }
+    return PassEntryScreen(
+      key: ValueKey('${e.id}#$_selSeq'),
+      pass: p,
+      entry: e,
+      isNew: _selNew,
+      embedded: true,
+      onDone: () => setState(() {
+        _selNew = false;
+        if (e.deleted) _sel = null;
+      }),
+    );
+  }
+
+  Widget _desktop() => ThreePane(store: widget.store, panes: {
+        'side': PaneSpec('Папки', _dSide()),
+        'list': PaneSpec('Пароли', _dList()),
+        'detail': PaneSpec('Запись', _dDetail()),
+      });
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -566,7 +823,7 @@ class _PassPageState extends State<PassPage> {
       builder: (context, _) => Listener(
         behavior: HitTestBehavior.translucent,
         onPointerDown: (_) => p.touch(),
-        child: p.unlocked ? _list() : _lockForm(),
+        child: p.unlocked ? (widget.desktop ? _desktop() : _list()) : _lockForm(),
       ),
     );
   }
@@ -578,8 +835,15 @@ class PassEntryScreen extends StatefulWidget {
   final PassStore pass;
   final PassEntry entry;
   final bool isNew;
+  final bool embedded; // внутри трёхблочного вида
+  final VoidCallback? onDone;
   const PassEntryScreen(
-      {super.key, required this.pass, required this.entry, required this.isNew});
+      {super.key,
+      required this.pass,
+      required this.entry,
+      required this.isNew,
+      this.embedded = false,
+      this.onDone});
   @override
   State<PassEntryScreen> createState() => _PassEntryScreenState();
 }
@@ -648,14 +912,23 @@ class _PassEntryScreenState extends State<PassEntryScreen> {
     e.updatedAt = nowMs();
     if (widget.isNew) widget.pass.entries.add(e);
     widget.pass.changed();
-    Navigator.pop(context);
+    if (widget.embedded) {
+      widget.onDone?.call();
+      if (mounted) toast(context, 'Сохранено');
+    } else {
+      Navigator.pop(context);
+    }
   }
 
   void _delete() {
     e.deleted = true;
     e.updatedAt = nowMs();
     widget.pass.changed();
-    Navigator.pop(context);
+    if (widget.embedded) {
+      widget.onDone?.call();
+    } else {
+      Navigator.pop(context);
+    }
   }
 
   Widget _copyCtl(TextEditingController c) => IconButton(
@@ -681,6 +954,7 @@ class _PassEntryScreenState extends State<PassEntryScreen> {
       onPointerDown: (_) => widget.pass.touch(),
       child: Scaffold(
         appBar: AppBar(
+          automaticallyImplyLeading: !widget.embedded,
           title: Text(widget.isNew ? 'Новая запись' : 'Запись'),
           actions: [
             IconButton(

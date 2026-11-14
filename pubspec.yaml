@@ -29,6 +29,8 @@ dependencies:
   window_manager: ^0.4.3
   tray_manager: ^0.2.4
   android_intent_plus: ^5.2.0
+  pdf: ^3.11.1
+  workmanager: ^0.10.0
 
 dev_dependencies:
   flutter_test:
@@ -40,3 +42,5 @@ flutter:
     - assets/tray.ico
     - assets/alert.wav
     - assets/icon/icon_512.png
+    - assets/fonts/DejaVuSans.ttf
+    - assets/fonts/DejaVuSans-Bold.ttf

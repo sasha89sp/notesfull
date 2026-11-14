@@ -466,6 +466,24 @@ class Store extends ChangeNotifier {
     await saveSettings();
   }
 
+  /// Тихая разблокировка для фоновой синхронизации (без диалога биометрии):
+  /// работает только если ключи ранее сохранены в защищённом хранилище.
+  Future<bool> unlockSilent() async {
+    try {
+      final k = await _ss.read(key: _bk('k'));
+      final sk = await _ss.read(key: _bk('sk'));
+      if (k == null || sk == null) return false;
+      key = SecretKey(base64Decode(k));
+      syncKey = SecretKey(base64Decode(sk));
+      await _load();
+      return true;
+    } catch (_) {
+      key = null;
+      syncKey = null;
+      return false;
+    }
+  }
+
   Future<bool> unlockBio() async {
     try {
       final ok = await LocalAuthentication().authenticate(
@@ -541,7 +559,17 @@ class Store extends ChangeNotifier {
     chat.add(ChatMsg.create(room, settings.profileId, nm, text));
     notifyListeners();
     await saveChat();
-    schedSync();
+    // сразу отправляем сообщение, не дожидаясь отложенной синхронизации
+    if (gr != null && !gr.removed) {
+      try {
+        await SyncService.chatOnly(this, gr);
+      } catch (e) {
+        AppLog.I.e('chat', 'отправка: $e', null);
+        schedSync();
+      }
+    } else {
+      schedSync();
+    }
   }
 
   Future<void> saveFolders() =>
@@ -661,6 +689,20 @@ class Store extends ChangeNotifier {
     n.folder = folder;
     n.updatedAt = nowMs();
     changed();
+  }
+
+  // ------------------------------------------------------------ режим интерфейса
+
+  /// Десктопный вид: выбран вручную или (авто) на компьютере в широком окне.
+  bool useDesktop(double width) {
+    switch (settings.uiMode) {
+      case 'desktop':
+        return true;
+      case 'mobile':
+        return false;
+      default:
+        return (Platform.isWindows || Platform.isLinux || Platform.isMacOS) && width >= 900;
+    }
   }
 
   // ------------------------------------------------------------ поиск по индексу

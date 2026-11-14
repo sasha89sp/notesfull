@@ -8,12 +8,14 @@ import 'package:flutter/services.dart';
 import 'applog.dart';
 import 'autofill.dart';
 import 'backup.dart';
+import 'bg_sync.dart';
 import 'diag_screens.dart';
 import 'gdrive.dart';
 import 'google.dart';
 import 'ics.dart';
 import 'local_tx.dart';
 import 'models.dart';
+import 'pdf_export.dart';
 import 'store.dart';
 import 'sync.dart';
 import 'util.dart';
@@ -143,6 +145,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ctl.dispose();
     if (ok != true) return;
     _autoTimer?.cancel();
+    final sp = await Backup.safetyCopy(s, 'reset');
+    if (mounted) toast(context, sp == null ? 'Страховочная копия не создана' : 'Страховочная копия сохранена');
     await s.resetProfile();
     await widget.onLogout(true);
   }
@@ -399,6 +403,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _restoreBytes(bytes);
   }
 
+  /// Список автоматических копий, сделанных перед сбросом/восстановлением/импортом.
+  Future<void> _safetyList() async {
+    final l = await Backup.listSafety(s);
+    if (!mounted) return;
+    final pick = await showDialog<File>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Страховочные копии'),
+        children: [
+          if (l.isEmpty)
+            const Padding(
+                padding: EdgeInsets.all(20),
+                child: Text('Пока нет. Копия создаётся автоматически перед сбросом, '
+                    'восстановлением и импортом из Joplin.')),
+          for (final f in l)
+            SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, f), child: Text(Backup.safetyLabel(f))),
+        ],
+      ),
+    );
+    if (pick == null) return;
+    await _restoreBytes(await pick.readAsBytes());
+  }
+
   Future<void> _restore() async {
     final r = await FilePicker.platform
         .pickFiles(type: FileType.custom, allowedExtensions: ['zip'], withData: true);
@@ -419,6 +447,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
     try {
+      await Backup.safetyCopy(s, 'restore');
       await Backup.restore(s, bytes);
       await widget.onLogout(false);
     } catch (e, stk) {
@@ -460,6 +489,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final note = ValueNotifier<String>('Импорт из Joplin…');
     final close = _progress(note);
     try {
+      note.value = 'Страховочная копия…';
+      await Backup.safetyCopy(s, 'joplin');
+      note.value = 'Импорт из Joplin…';
       final msg = await Jex.importInto(s, bytes, progress: (t) => note.value = t);
       close();
       if (mounted) toast(context, 'Импорт Joplin: $msg');
@@ -469,6 +501,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) toast(context, 'Не удалось импортировать JEX: $e');
     } finally {
       }
+  }
+
+  Future<void> _pdfExport() async {
+    try {
+      final bytes = await PdfExport.build(s, s.notes.where((n) => !n.isGroup).toList());
+      if (await saveBytes('asrbox_notes.pdf', bytes) && mounted) toast(context, 'PDF сохранён');
+    } catch (e, stk) {
+      AppLog.I.e('pdf', '$e', stk);
+      if (mounted) toast(context, 'Ошибка экспорта: $e');
+    }
   }
 
   Future<void> _mdExport() async {
@@ -575,6 +617,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ]),
+          if (BgSync.available)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Фоновая синхронизация'),
+              subtitle: const Text(
+                  'Раз в ~30 минут, даже когда приложение закрыто. Нужен вход по биометрии '
+                  '(ключ хранится в защищённом хранилище телефона). На Motorola и других '
+                  'китайских прошивках разрешите автозапуск и снимите ограничение батареи.',
+                  style: TextStyle(fontSize: 12)),
+              value: st.bgSync,
+              onChanged: (v) async {
+                if (v && !await s.bioStored()) {
+                  if (mounted) toast(context, 'Сначала включите вход по биометрии (Шифрование)');
+                  return;
+                }
+                setState(() => st.bgSync = v);
+                await BgSync.apply(v);
+                s.refresh();
+                _auto();
+              },
+            ),
+          _drop('Вид интерфейса', st.uiMode,
+              const {'auto': 'Авто (по устройству)', 'desktop': 'Компьютер (три блока, мышь)', 'mobile': 'Телефон'},
+              (v) {
+            st.uiMode = v;
+            s.refresh();
+            _auto();
+          }),
+          if (st.uiMode != 'mobile')
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () {
+                  setState(() {
+                    st.paneOrder = ['side', 'list', 'detail'];
+                    st.paneW = {'side': 230, 'list': 330};
+                  });
+                  s.refresh();
+                  _auto();
+                },
+                icon: const Icon(Icons.view_column_outlined, size: 18),
+                label: const Text('Сбросить расположение блоков'),
+              ),
+            ),
           Row(children: [
             const Text('Размер шрифта'),
             Expanded(
@@ -788,12 +874,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Wrap(spacing: 10, runSpacing: 8, children: [
             FilledButton(onPressed: _backup, child: const Text('Полный бэкап')),
             OutlinedButton(onPressed: _restore, child: const Text('Восстановить')),
+            OutlinedButton(onPressed: _safetyList, child: const Text('Страховочные копии')),
             OutlinedButton(
                 onPressed: () => _upload(null), child: const Text('Бэкап на сервер сейчас')),
             OutlinedButton(onPressed: _remoteBackups, child: const Text('Бэкапы на сервере')),
             OutlinedButton(onPressed: _jexImport, child: const Text('Импорт из Joplin')),
             OutlinedButton(onPressed: _jexExport, child: const Text('Экспорт в Joplin')),
             OutlinedButton(onPressed: _mdExport, child: const Text('Экспорт в Markdown')),
+            OutlinedButton(onPressed: _pdfExport, child: const Text('Экспорт всех заметок в PDF')),
             OutlinedButton(onPressed: _icsImport, child: const Text('Импорт календаря')),
             OutlinedButton(onPressed: _icsExport, child: const Text('Экспорт календаря')),
           ]),

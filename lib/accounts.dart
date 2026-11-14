@@ -90,7 +90,7 @@ class Accounts {
 
   /// Поля, которые не переносятся между устройствами (способ подключения к
   /// хранилищу и данные самого аккаунта определяются при входе).
-  static const _skip = {'url', 'user', 'pass', 'storage', 'folder', 'localPath', 'userId'};
+  static const _skip = {'url', 'user', 'pass', 'storage', 'folder', 'localPath', 'userId', 'uiMode', 'bgSync', 'paneW', 'paneOrder', 'fontScale', 'modLock'};
 
   static Map<String, dynamic> exportSettings(Settings s) {
     final m = Map<String, dynamic>.from(s.toJson());

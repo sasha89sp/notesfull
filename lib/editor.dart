@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'backup.dart';
+import 'pdf_export.dart';
 import 'comments_view.dart';
 import 'groups.dart';
 import 'hub.dart';
@@ -170,7 +171,21 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
+  Future<void> _exportPdf() async {
+    final safe = (n.title.trim().isEmpty ? 'note' : n.title.trim()).replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    try {
+      final ok = await saveBytes('$safe.pdf', await PdfExport.build(s, [n]));
+      if (ok && mounted) toast(context, 'PDF сохранён');
+    } catch (e) {
+      if (mounted) toast(context, 'Ошибка PDF: $e');
+    }
+  }
+
   void _menu(String v) {
+    if (v == 'pdf') {
+      _exportPdf();
+      return;
+    }
     if (v == 'event') {
       _toCalendar();
     } else if (v == 'delete') {
@@ -588,6 +603,7 @@ class _EditorScreenState extends State<EditorScreen> {
               PopupMenuItem(value: 'event', child: Text('Добавить в календарь')),
               PopupMenuItem(value: 'history', child: Text('История версий')),
               PopupMenuItem(value: 'md', child: Text('Экспорт в Markdown')),
+              PopupMenuItem(value: 'pdf', child: Text('Экспорт в PDF')),
               PopupMenuItem(value: 'delete', child: Text('Удалить')),
             ],
           ),

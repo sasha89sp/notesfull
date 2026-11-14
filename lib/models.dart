@@ -839,6 +839,9 @@ class Settings {
   String grpPass;
   String grpFolder;
   Map<String, bool> modules; // notes, shared, calendar, pass, backup
+  String uiMode; // auto | desktop | mobile
+  List<String> paneOrder; // порядок блоков десктопного вида: side, list, detail
+  Map<String, double> paneW; // ширины боковых блоков
   double fontScale; // масштаб шрифта интерфейса (0.8–1.6)
   Map<String, int> modLock; // блокировка модуля биометрией: секунды бездействия (0 — при каждом входе)
   List<Group> groups;
@@ -852,6 +855,7 @@ class Settings {
   bool bkAuto; // после создания бэкапа загружать его на сервер
   bool bkDaily; // делать бэкап сам раз в сутки
   int bkKeep; // сколько последних копий хранить
+  bool bgSync; // фоновая синхронизация Android (WorkManager)
   int bkPhoneEvery; // расписание бэкапа телефона: часы (0 — выключено)
   int bkPhoneLast; // когда делался последний бэкап телефона
   int bkLast;
@@ -897,6 +901,9 @@ class Settings {
     Map<String, bool>? modules,
     Map<String, int>? modLock,
     this.fontScale = 1.0,
+    this.uiMode = 'auto',
+    List<String>? paneOrder,
+    Map<String, double>? paneW,
     List<Group>? groups,
     List<String>? favorites,
     List<String>? pinned,
@@ -909,12 +916,15 @@ class Settings {
     this.bkDaily = false,
     this.bkKeep = 7,
     this.bkPhoneEvery = 0,
+    this.bgSync = false,
     this.bkPhoneLast = 0,
     this.bkLast = 0,
     this.settingsUpdatedAt = 0,
   })  : attDone = attDone ?? [],
         groups = groups ?? [],
         modLock = modLock ?? {},
+        paneOrder = paneOrder ?? ['side', 'list', 'detail'],
+        paneW = paneW ?? {'side': 230, 'list': 330},
         favorites = favorites ?? [],
         pinned = pinned ?? [],
         modules = modules ??
@@ -960,6 +970,9 @@ class Settings {
         'modules': modules,
         'modLock': modLock,
         'fontScale': fontScale,
+        'uiMode': uiMode,
+        'paneOrder': paneOrder,
+        'paneW': paneW,
         'groups': groups.map((g) => g.toJson()).toList(),
         'favorites': favorites,
         'pinned': pinned,
@@ -972,6 +985,7 @@ class Settings {
         'bkDaily': bkDaily,
         'bkKeep': bkKeep,
         'bkPhoneEvery': bkPhoneEvery,
+        'bgSync': bgSync,
         'bkPhoneLast': bkPhoneLast,
         'bkLast': bkLast,
         'settingsUpdatedAt': settingsUpdatedAt,
@@ -1029,12 +1043,16 @@ class Settings {
       bkDaily: (j['bkDaily'] ?? false) as bool,
       bkKeep: (j['bkKeep'] ?? 7) as int,
       bkPhoneEvery: (j['bkPhoneEvery'] ?? 0) as int,
+      bgSync: (j['bgSync'] ?? false) as bool,
       bkPhoneLast: (j['bkPhoneLast'] ?? 0) as int,
       bkLast: (j['bkLast'] ?? 0) as int,
       groups: ((j['groups'] ?? []) as List)
           .map((e) => Group.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(),
       fontScale: ((j['fontScale'] ?? 1.0) as num).toDouble(),
+      uiMode: (j['uiMode'] ?? 'auto') as String,
+      paneOrder: ((j['paneOrder'] ?? ['side', 'list', 'detail']) as List).map((e) => e.toString()).toList(),
+      paneW: ((j['paneW'] ?? {'side': 230, 'list': 330}) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble())),
       modLock: ((j['modLock'] ?? {}) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toInt())),
       favorites: ((j['favorites'] ?? []) as List).map((e) => e.toString()).toList(),
       pinned: ((j['pinned'] ?? []) as List).map((e) => e.toString()).toList(),
