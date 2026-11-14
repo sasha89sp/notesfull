@@ -124,25 +124,36 @@ jobs:
         shell: bash
         run: python3 ci/patch_windows.py
 
-      - name: Build Windows (full; falls back to build without local Whisper)
-        shell: bash
+      - name: Enable local Whisper
+        shell: pwsh
+        run: |
+          Copy-Item pubspec.yaml "$env:RUNNER_TEMP/pubspec.plain"
+          Copy-Item lib/local_tx.dart "$env:RUNNER_TEMP/local_tx.plain"
+          Copy-Item variants/whisper/local_tx.dart lib/local_tx.dart -Force
+          (Get-Content pubspec.yaml) -replace '^  archive: .*$', "`$0`n  whisper_ggml: ^2.9.0" | Set-Content pubspec.yaml
+
+      - name: Build Windows with Whisper
+        id: full
+        continue-on-error: true
+        shell: pwsh
         env:
           CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
         run: |
-          cp pubspec.yaml "$RUNNER_TEMP/pubspec.plain"
-          cp lib/local_tx.dart "$RUNNER_TEMP/local_tx.plain"
-          cp variants/whisper/local_tx.dart lib/local_tx.dart
-          sed -i 's/^  archive: .*/&\n  whisper_ggml: ^2.9.0/' pubspec.yaml
-          if flutter pub get && flutter build windows --release; then
-            echo "Built with local Whisper"
-          else
-            echo "::warning::Build with local Whisper failed, rebuilding without it"
-            cp "$RUNNER_TEMP/pubspec.plain" pubspec.yaml
-            cp "$RUNNER_TEMP/local_tx.plain" lib/local_tx.dart
-            flutter clean
-            flutter pub get
-            flutter build windows --release
-          fi
+          flutter pub get
+          flutter build windows --release
+
+      - name: Rebuild Windows without Whisper (fallback)
+        if: steps.full.outcome == 'failure'
+        shell: pwsh
+        env:
+          CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+        run: |
+          Write-Host "::warning::Build with local Whisper failed, rebuilding without it"
+          Copy-Item "$env:RUNNER_TEMP/pubspec.plain" pubspec.yaml -Force
+          Copy-Item "$env:RUNNER_TEMP/local_tx.plain" lib/local_tx.dart -Force
+          flutter clean
+          flutter pub get
+          flutter build windows --release
 
       - uses: actions/upload-artifact@v4
         with:
