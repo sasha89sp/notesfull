@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'backup.dart';
 import 'crypto.dart';
+import 'models.dart';
 import 'phone_data.dart';
 import 'settings_screen.dart';
 import 'store.dart';
@@ -207,6 +208,29 @@ class _BackupPageState extends State<BackupPage> {
     });
   }
 
+  // ---------------------------------------------------------- бэкап телефона одной кнопкой
+
+  Future<void> _phoneAll() => _run('Бэкап телефона', () async {
+        final r = await PhoneData.runAll(s, ask: true);
+        if (r.uploaded) return 'Готово и загружено в облако: ${r.info}';
+        final ok = await saveBytes(r.name, r.bytes);
+        return '${ok ? 'Сохранено в файл' : 'Сохранение отменено'} (облако не настроено): ${r.info}';
+      });
+
+  Widget _sectionHead(String title, String sub, IconData icon) => Padding(
+        padding: const EdgeInsets.fromLTRB(2, 8, 2, 10),
+        child: Row(children: [
+          Icon(icon, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+              Text(sub, style: TextStyle(fontSize: 12, color: Pal.secondary(context))),
+            ]),
+          ),
+        ]),
+      );
+
   // ---------------------------------------------------------- полный бэкап
 
   Future<void> _fullToFile() => _run('Создание бэкапа', () async {
@@ -258,6 +282,7 @@ class _BackupPageState extends State<BackupPage> {
   @override
   Widget build(BuildContext context) {
     final android = PhoneData.available;
+    final st = s.settings;
     return ListView(padding: const EdgeInsets.all(16), children: [
       if (_busy) const Padding(padding: EdgeInsets.only(bottom: 10), child: LinearProgressIndicator()),
       if (_status.isNotEmpty)
@@ -265,24 +290,83 @@ class _BackupPageState extends State<BackupPage> {
           padding: const EdgeInsets.only(bottom: 12),
           child: Text(_status, style: TextStyle(color: Pal.secondary(context))),
         ),
+
+      // ======================= 1. приложение и настройки =======================
+      _sectionHead('Приложение и настройки', 'Заметки, события, пароли, вложения и настройки профиля',
+          Icons.apps_outlined),
       _card('Полный бэкап ASRbox', Icons.inventory_2_outlined,
-          'Все заметки, события, пароли и вложения профиля одним файлом.', [
+          'Всё содержимое профиля одним файлом; остаётся зашифрованным вашим паролем.', [
         _btn('В файл', Icons.save_alt, _fullToFile, filled: true),
         _btn('В облако', Icons.cloud_upload_outlined, _fullToCloud),
-        _btn('Настройки облака', Icons.settings_outlined, () {
+        _btn('Облако и расписание', Icons.settings_outlined, () {
           Navigator.of(context).push(MaterialPageRoute<void>(
               builder: (_) => SettingsScreen(store: s, onTheme: (_) {}, onLogout: (_) async {})));
         }),
       ]),
+      const SizedBox(height: 8),
+      const Divider(),
+
+      // ============================ 2. телефон ============================
+      _sectionHead('Телефон', 'Данные устройства: звонки, контакты, SMS, Wi-Fi', Icons.smartphone_outlined),
       if (!android)
         const Padding(
           padding: EdgeInsets.all(8),
-          child: Text('Перенос звонков, контактов, SMS и Wi-Fi доступен только в Android-версии.'),
+          child: Text('Бэкап телефона доступен только в Android-версии.'),
         )
       else ...[
+        AppCard(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(children: [
+              Icon(Icons.folder_special_outlined, size: 34, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Бэкап телефона',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+                  Text(
+                      'Одно нажатие: собираются все доступные данные и сразу загружаются в облако.'
+                      '${st.bkPhoneLast > 0 ? '\nПоследний: ${fmtDate(st.bkPhoneLast)}' : ''}',
+                      style: TextStyle(fontSize: 12, color: Pal.secondary(context))),
+                ]),
+              ),
+              const SizedBox(width: 8),
+              FloatingActionButton(
+                heroTag: 'phoneBackup',
+                onPressed: _busy ? null : _phoneAll,
+                tooltip: 'Создать бэкап телефона и загрузить в облако',
+                child: const Icon(Icons.add),
+              ),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<int>(
+          value: const [0, 6, 24, 168].contains(st.bkPhoneEvery) ? st.bkPhoneEvery : 0,
+          decoration: const InputDecoration(labelText: 'Расписание автоматического бэкапа телефона'),
+          items: const [
+            DropdownMenuItem(value: 0, child: Text('Выключено')),
+            DropdownMenuItem(value: 6, child: Text('Каждые 6 часов')),
+            DropdownMenuItem(value: 24, child: Text('Раз в сутки')),
+            DropdownMenuItem(value: 168, child: Text('Раз в неделю')),
+          ],
+          onChanged: (v) async {
+            st.bkPhoneEvery = v ?? 0;
+            await s.saveSettings();
+            if (mounted) setState(() {});
+          },
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(2, 6, 2, 10),
+          child: Text(
+              'По расписанию копия делается, пока приложение открыто (или работает в фоне), '
+              'и нужны уже выданные разрешения и настроенное облако. Android не позволяет '
+              'приложению просыпаться по расписанию, когда оно полностью закрыто.',
+              style: TextStyle(fontSize: 12, color: Pal.secondary(context))),
+        ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('Шифровать файлы ключом профиля'),
+          title: const Text('Шифровать отдельные файлы ключом профиля'),
           subtitle: const Text('Файлы с данными телефона содержат личное; расшифровать их можно только в этом профиле',
               style: TextStyle(fontSize: 12)),
           value: _encrypt,
@@ -290,12 +374,13 @@ class _BackupPageState extends State<BackupPage> {
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('Дополнительно загружать в облако'),
+          title: const Text('Отдельный экспорт тоже загружать в облако'),
           subtitle: const Text('На сервер для бэкапов (WebDAV, Яндекс Диск или Google Диск)',
               style: TextStyle(fontSize: 12)),
           value: _toCloud,
           onChanged: (v) => setState(() => _toCloud = v),
         ),
+        _sectionHead('Отдельные данные', 'Экспорт и импорт по одному виду', Icons.tune),
         _card('Журнал звонков', Icons.call_outlined, 'Номера, время, длительность, тип.', [
           _btn('Экспорт', Icons.upload_file, _callsExport),
           _btn('Импорт', Icons.download, _callsImport),

@@ -143,3 +143,25 @@ String escapeXml(String s) => s
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
+
+/// Выполняет задачи с ограничением числа одновременных (по умолчанию 5).
+/// Первая ошибка останавливает запуск новых задач и пробрасывается после завершения текущих.
+Future<void> runPool(Iterable<Future<void> Function()> tasks, {int limit = 5}) async {
+  final it = tasks.iterator;
+  Object? err;
+  StackTrace? st;
+  Future<void> worker() async {
+    while (err == null && it.moveNext()) {
+      final t = it.current;
+      try {
+        await t();
+      } catch (e, s) {
+        err ??= e;
+        st ??= s;
+      }
+    }
+  }
+
+  await Future.wait([for (var i = 0; i < limit; i++) worker()]);
+  if (err != null) Error.throwWithStackTrace(err!, st!);
+}

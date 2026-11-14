@@ -32,6 +32,16 @@ class Groups {
     return t.startsWith('/') ? t : '/$t';
   }
 
+  /// Метка времени «ддммггггччммсс» без разделителей, например 13112026200510.
+  static String stamp([DateTime? d]) {
+    final x = d ?? DateTime.now();
+    String t(int v, [int n = 2]) => v.toString().padLeft(n, '0');
+    return '${t(x.day)}${t(x.month)}${t(x.year, 4)}${t(x.hour)}${t(x.minute)}${t(x.second)}';
+  }
+
+  /// Имя файла профиля из идентификатора: только латиница, цифры, «-» и «_».
+  static String fileKey(String id) => id.replaceAll(RegExp(r'[^0-9A-Za-z_-]'), '');
+
   /// Новый ключ: случайный или выведенный из придуманной фразы.
   static Future<String> makeKey({String? phrase}) async {
     if (phrase != null && phrase.isNotEmpty) {
@@ -44,30 +54,39 @@ class Groups {
 
   // ------------------------------------------------------------ создание
 
-  /// Создать общую папку на WebDAV, к которому вы подключены.
+  /// Создать общую папку на указанном WebDAV (по умолчанию подставляются данные текущей авторизации).
   static Future<Group> create(Store s,
-      {required String name, required String folder, String? phrase}) async {
+      {required String name,
+      required String folder,
+      required String url,
+      required String user,
+      required String pass,
+      String? id,
+      String? phrase}) async {
     final st = s.settings;
-    if (st.storage != 'webdav' || !st.syncConfigured) {
-      throw 'Сначала подключитесь к WebDAV (Настройки)';
-    }
+    if (url.trim().isEmpty || user.trim().isEmpty) throw 'Укажите WebDAV-сервер, логин и пароль';
     if (name.trim().isEmpty) throw 'Введите название';
+    final gid = (id ?? '').trim().isEmpty ? stamp() : id!.trim();
+    if (st.groups.any((x) => x.id == gid)) throw 'Группа с таким ID уже есть';
     final f = normFolder(folder);
-    final dav = Dav(st.url, st.user, st.pass);
+    final dav = Dav(url.trim(), user.trim(), pass);
     await dav.mkcolAll(f);
     final g = Group(
-      id: newId(),
+      id: gid,
       name: name.trim(),
-      url: st.url,
-      user: st.user,
-      pass: st.pass,
+      url: url.trim(),
+      user: user.trim(),
+      pass: pass,
       folder: f,
       key: await makeKey(phrase: phrase),
       owner: st.profileId,
+      myName: s.author,
+      rights: 'edit',
     );
     await dav.mkcol(g.notesDir);
     await dav.mkcol(g.profilesDir);
     await dav.mkcol(g.chatDir);
+    await dav.mkcol('$f/invites');
     await dav.putAtomic(
         '$f/meta.json',
         utf8.encode(jsonEncode(
@@ -87,7 +106,7 @@ class Groups {
   static const _plain = 'asrbox-g1:';
   static const _enc = 'asrbox-g1e:';
 
-  static Map<String, dynamic> _payload(Group g) => {
+  static Map<String, dynamic> _payload(Group g, String invId, String rights) => {
         'i': g.id,
         'g': g.name,
         'u': g.url,
@@ -96,16 +115,41 @@ class Groups {
         'f': g.folder,
         'k': g.key,
         'o': g.owner,
+        'v': invId,
+        'r': rights,
       };
 
   static Future<SecretKey> _inviteKey() =>
       Crypto.deriveFixed('asrbox-invite', 'asrbox-invite-v1');
 
-  /// Приглашение одной строкой. В открытом виде содержимое видно полностью;
-  /// зашифрованное не показывает получателю логин и пароль WebDAV (приложение
-  /// подставит их само). Это защита от случайного просмотра в переписке и буфере обмена.
-  static Future<String> invite(Group g, {required bool encrypted}) async {
-    final json = utf8.encode(jsonEncode(_payload(g)));
+  /// Создаёт приглашение: новый уникальный ID (дата и время с секундами), запись о нём
+  /// на сервере (права и разовость) и строку для копирования. Зашифрованное приглашение
+  /// не показывает получателю логин и пароль WebDAV (защита от случайного просмотра).
+  static Future<String> makeInvite(Group g,
+      {required bool encrypted, required String rights, required bool single}) async {
+    final r = remoteOf(g);
+    await r.mkcolAll('${g.folder}/invites');
+    var inv = stamp();
+    var n = 0;
+    while (await r.get('${g.folder}/invites/$inv.json') != null) {
+      n++;
+      inv = '${stamp()}$n';
+    }
+    await r.putAtomic(
+        '${g.folder}/invites/$inv.json',
+        utf8.encode(jsonEncode({
+          'id': inv,
+          'rights': rights,
+          'single': single,
+          'created': nowMs(),
+          'by': g.memberId(''),
+        })));
+    return encode(g, inv, rights, encrypted: encrypted);
+  }
+
+  static Future<String> encode(Group g, String inv, String rights,
+      {required bool encrypted}) async {
+    final json = utf8.encode(jsonEncode(_payload(g, inv, rights)));
     if (!encrypted) return '$_plain${base64Url.encode(json)}';
     final data = await Crypto.encrypt(await _inviteKey(), json);
     return '$_enc${base64Url.encode(data)}';
@@ -134,6 +178,8 @@ class Groups {
         folder: (m['f'] ?? '') as String,
         key: (m['k'] ?? '') as String,
         owner: (m['o'] ?? '') as String,
+        invId: (m['v'] ?? '') as String,
+        rights: (m['r'] ?? 'edit') as String,
       );
       if (g.id.isEmpty || g.url.isEmpty || g.folder.isEmpty || g.key.isEmpty) throw 'поля';
       return g;
@@ -143,7 +189,10 @@ class Groups {
   }
 
   /// Войти в общую группу по приглашению.
-  static Future<Group> join(Store s, String inviteText) async {
+  /// Войти в группу по приглашению. Имя обязательно: без него доступ не выдаётся.
+  static Future<Group> join(Store s, String inviteText, String name) async {
+    final nm = name.trim();
+    if (nm.isEmpty) throw 'Введите своё имя: без него доступ не выдаётся';
     final g = await parseInvite(inviteText);
     final dav = remoteOf(g);
     final meta = await dav.get('${g.folder}/meta.json');
@@ -161,10 +210,37 @@ class Groups {
       if (g.name.isEmpty) g.name = (m['name'] ?? 'Группа') as String;
       if (g.owner.isEmpty) g.owner = (m['owner'] ?? '') as String;
     } catch (_) {}
+    final inv = g.invId.isEmpty ? g.id : g.invId;
+    final myId = '$inv${stamp()}$nm';
+    // запись о приглашении на сервере: права и разовость нельзя подменить в строке
+    final recB = await dav.get('${g.folder}/invites/$inv.json');
+    if (recB != null) {
+      try {
+        final rec = jsonDecode(utf8.decode(recB)) as Map<String, dynamic>;
+        g.rights = (rec['rights'] ?? g.rights) as String;
+        if (rec['single'] == true) {
+          final used = await dav.get('${g.folder}/invites/$inv.used');
+          const msg = 'Такой пользователь уже зарегистрировался, повторно нельзя';
+          if (used != null) throw msg;
+          await dav.putAtomic('${g.folder}/invites/$inv.used', utf8.encode(myId));
+          final back = await dav.get('${g.folder}/invites/$inv.used');
+          if (back == null || utf8.decode(back) != myId) throw msg;
+        }
+      } on FormatException {
+        // повреждённая запись: считаем приглашение обычным
+      }
+    } else if (g.invId.isNotEmpty) {
+      throw 'Приглашение недействительно или отозвано';
+    }
+    g.me = myId;
+    g.myName = nm;
     final st = s.settings;
     st.groups.removeWhere((x) => x.id == g.id);
     st.groups.add(g);
     await s.saveSettings();
+    try {
+      await putProfile(dav, g, s);
+    } catch (_) {}
     return g;
   }
 
@@ -180,15 +256,18 @@ class Groups {
 
   // ------------------------------------------------------------ участники и права
 
+  /// Профиль участника в группе: имя, полный идентификатор, права и время последнего онлайна.
   static Future<void> putProfile(Remote r, Group g, Store s) async {
     final st = s.settings;
+    final id = g.memberId(st.profileId);
     await r.put(
-      '${g.profilesDir}/${st.profileId}.json',
+      '${g.profilesDir}/${fileKey(id)}.json',
       utf8.encode(jsonEncode({
-        'uuid': st.profileId,
-        'name': s.author,
+        'uuid': id,
+        'name': g.myName.isEmpty ? s.author : g.myName,
         'color': st.color,
-        'created_at': nowMs(),
+        'rights': g.owner == st.profileId ? 'owner' : g.rights,
+        'lastSeen': nowMs(),
       })),
     );
   }
@@ -219,7 +298,7 @@ class Groups {
   /// Применяет права из облака к этому устройству (вызывается при синхронизации).
   static Future<void> applyAcl(Remote r, Group g, Store s) async {
     final acl = await readAcl(r, g);
-    final me = s.settings.profileId;
+    final me = g.memberId(s.settings.profileId);
     final removed = ((acl['removed'] ?? []) as List).map((e) => e.toString()).toSet();
     final ro = ((acl['readonly'] ?? []) as List).map((e) => e.toString()).toSet();
     g.removed = removed.contains(me);
@@ -237,7 +316,7 @@ class Groups {
     if (remove != null) {
       removed.add(remove);
       ro.remove(remove);
-      await r.delete('${g.profilesDir}/$remove.json');
+      await r.delete('${g.profilesDir}/${fileKey(remove)}.json');
     }
     if (readonlyId != null) {
       if (readonly) {

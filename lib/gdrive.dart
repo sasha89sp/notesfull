@@ -110,6 +110,7 @@ class GDriveRemote extends Remote {
       {List<int>? body, Map<String, String>? headers}) async {
     Object? last;
     for (var i = 0; i < 3; i++) {
+      final t0 = DateTime.now();
       try {
         final req = http.Request(method, url);
         req.headers['Authorization'] = 'Bearer ${await GDrive.access(st)}';
@@ -117,6 +118,8 @@ class GDriveRemote extends Remote {
         if (body != null) req.bodyBytes = body;
         final r = await http.Response.fromStream(
             await req.send().timeout(const Duration(seconds: 90)));
+        Net.add(method, url.path, body?.length ?? 0, r.bodyBytes.length,
+            DateTime.now().difference(t0).inMilliseconds, 'HTTP ${r.statusCode}');
         if (r.statusCode == 401) GDrive.forget();
         if ((r.statusCode >= 500 || r.statusCode == 429 || r.statusCode == 401) && i < 2) {
           last = 'HTTP ${r.statusCode}';

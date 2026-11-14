@@ -471,6 +471,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
   }
 
+  Future<void> _mdExport() async {
+    try {
+      final bytes = await Jex.exportMarkdown(s, s.notes.where((n) => !n.isGroup).toList());
+      if (await saveBytes('asrbox_markdown.zip', bytes) && mounted) {
+        toast(context, 'Markdown сохранён');
+      }
+    } catch (e, stk) {
+      AppLog.I.e('md', '$e', stk);
+      if (mounted) toast(context, 'Ошибка экспорта: $e');
+    }
+  }
+
   Future<void> _jexExport() async {
     try {
       final bytes = await Jex.exportFrom(s);
@@ -563,6 +575,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ]),
+          Row(children: [
+            const Text('Размер шрифта'),
+            Expanded(
+              child: Slider(
+                min: 0.8,
+                max: 1.6,
+                divisions: 8,
+                label: '${(st.fontScale * 100).round()}%',
+                value: st.fontScale.clamp(0.8, 1.6),
+                onChanged: (v) {
+                  setState(() => st.fontScale = v);
+                  s.refresh();
+                  _auto();
+                },
+              ),
+            ),
+          ]),
           _drop('Тема', st.theme,
               const {'system': 'Системная', 'light': 'Светлая', 'dark': 'Тёмная'},
               (v) {
@@ -620,6 +649,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _autoNow();
               },
             ),
+
+          const SectionTitle('Блокировка разделов'),
+          const Hint('Отдельная проверка биометрией или кодом устройства для общей папки и паролей. '
+              'Время считается с момента выхода из раздела или сворачивания приложения.'),
+          for (final m in const {'shared': 'Общая папка', 'pass': 'Пароли'}.entries)
+            _drop(
+                m.value,
+                st.modLock.containsKey(m.key) ? '${st.modLock[m.key]}' : 'off',
+                const {
+                  'off': 'Не блокировать',
+                  '0': 'При каждом входе',
+                  '30': 'Через 30 секунд',
+                  '120': 'Через 2 минуты',
+                  '600': 'Через 10 минут',
+                },
+                (v) {
+                  if (v == 'off') {
+                    st.modLock.remove(m.key);
+                  } else {
+                    st.modLock[m.key] = int.parse(v);
+                    s.moduleLock(m.key);
+                  }
+                }),
 
           const SectionTitle('Фото'),
           _drop('Качество при добавлении', st.photoQuality, const {
@@ -741,6 +793,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             OutlinedButton(onPressed: _remoteBackups, child: const Text('Бэкапы на сервере')),
             OutlinedButton(onPressed: _jexImport, child: const Text('Импорт из Joplin')),
             OutlinedButton(onPressed: _jexExport, child: const Text('Экспорт в Joplin')),
+            OutlinedButton(onPressed: _mdExport, child: const Text('Экспорт в Markdown')),
             OutlinedButton(onPressed: _icsImport, child: const Text('Импорт календаря')),
             OutlinedButton(onPressed: _icsExport, child: const Text('Экспорт календаря')),
           ]),

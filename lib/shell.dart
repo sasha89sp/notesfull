@@ -6,15 +6,21 @@ import 'backup.dart';
 import 'backup_page.dart';
 import 'calendar_page.dart';
 import 'desktop.dart';
+import 'desktop_notes.dart';
 import 'editor.dart';
 import 'event_screen.dart';
 import 'models.dart';
 import 'notes_page.dart';
+import 'phone_data.dart';
 import 'pass_page.dart';
 import 'pass_store.dart';
 import 'settings_screen.dart';
 import 'shared_page.dart';
 import 'store.dart';
+import 'remote.dart';
+import 'transfer_screen.dart';
+import 'trash_screen.dart';
+import 'util.dart';
 import 'widgets.dart';
 
 /// Главная оболочка: нижняя навигация, боковое меню (профиль, модули,
@@ -41,6 +47,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   String _folder = ''; // папка, открытая из «Избранного»
   int _folderSeq = 0;
   Timer? _timer;
+  Timer? _tick;
   StreamSubscription<List<ConnectivityResult>>? _conn;
 
   Store get s => widget.store;
@@ -50,10 +57,16 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     s.syncAll();
+    s.warmSearch();
     Backup.autoIfDue(s);
+    PhoneData.autoIfDue(s);
     _timer = Timer.periodic(const Duration(minutes: 30), (_) {
       s.syncAll();
       Backup.autoIfDue(s);
+      PhoneData.autoIfDue(s);
+    });
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (s.syncing && mounted) setState(() {});
     });
     _conn = Connectivity().onConnectivityChanged.listen((r) {
       if (!r.contains(ConnectivityResult.none)) s.schedSync();
@@ -69,12 +82,18 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    _tick?.cancel();
     _conn?.cancel();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused &&
+        s.settings.modLock.containsKey(_tab) &&
+        !s.moduleLocked(_tab)) {
+      s.moduleTouch(_tab);
+    }
     if (state == AppLifecycleState.resumed) s.syncAll();
   }
 
@@ -94,6 +113,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   List<String> get _navMods => _mods.where((m) => m != 'backup').toList();
 
   void _go(String m) => setState(() {
+        // выход из модуля с блокировкой: время бездействия считается с этого момента
+        if (_tab != m && s.settings.modLock.containsKey(_tab) && !s.moduleLocked(_tab)) {
+          s.moduleTouch(_tab);
+        }
         _tab = m;
         _visited.add(m);
       });
@@ -297,6 +320,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             ],
           ])),
           const Divider(height: 1),
+          if (_on('notes'))
+            _drawerItem(Icons.delete_outline, 'Корзина', () {
+              Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => TrashScreen(store: s)));
+            }),
           _drawerItem(Icons.settings_outlined, 'Настройки', _openSettings),
           ListTile(
             leading: Icon(dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
@@ -347,20 +375,25 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     if (s.syncing) {
       final p = s.progress;
       final pc = p == null ? '' : '${(p * 100).round()}% · ';
-      text = '$pc${s.progressText}';
+      final (u, d) = Net.speed();
+      text = '$pc↓${Net.fmtSpeed(d)} ↑${Net.fmtSpeed(u)}\n${s.progressText}';
     } else {
       final last = s.lastSync;
       if (last == null) return const SizedBox.shrink();
       text = last.status == 'ok' ? 'Синхронизировано ${last.when}' : last.statusText;
       if (last.status != 'ok' && last.status != 'cancelled') col = Pal.error(context);
     }
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 170),
-      child: Text(text,
-          maxLines: 2,
-          textAlign: TextAlign.right,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 11, height: 1.2, color: col)),
+    return InkWell(
+      onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => TransferScreen(store: s))),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 190),
+        child: Text(text,
+            maxLines: 2,
+            textAlign: TextAlign.right,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, height: 1.2, color: col)),
+      ),
     );
   }
 
@@ -386,6 +419,13 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                 onClearTag: () {})
             : _ModulesHome(mods: _mods, onOpen: _go);
       case 'notes':
+        // десктоп с широким окном: три колонки, как в Joplin
+        if (isDesktop && MediaQuery.of(context).size.width >= 900) {
+          return DesktopNotes(
+              key: ValueKey('dn$_folderSeq'),
+              store: s,
+              initial: _folder.isNotEmpty ? 'f:$_folder' : _tag != null ? 't:$_tag' : 'all');
+        }
         return NotesList(
             key: ValueKey('notes$_folderSeq'),
             store: s,
@@ -395,18 +435,47 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             folder: _folder,
             onClearTag: () => setState(() => _tag = null));
       case 'shared':
-        return SharedPage(store: s);
+        return _gate('shared', SharedPage(store: s));
       case 'calendar':
         return CalendarPage(store: s);
       case 'pass':
         return _tab == 'pass'
-            ? PassPage(store: s, pass: widget.pass)
+            ? _gate('pass', PassPage(store: s, pass: widget.pass))
             : const SizedBox.shrink();
       case 'backup':
         return BackupPage(store: s);
       default:
         return const SizedBox.shrink();
     }
+  }
+
+  /// Блокировка модуля биометрией (по настройкам, отдельно для общей папки и паролей).
+  Widget _gate(String m, Widget page) {
+    if (_tab != m) return page;
+    if (!s.settings.modLock.containsKey(m)) return page;
+    if (!s.moduleLocked(m)) {
+      s.moduleTouch(m);
+      return page;
+    }
+    return Center(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.lock_outline, size: 44),
+        const SizedBox(height: 12),
+        Text('${_names[m]} заблокирован'),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          icon: const Icon(Icons.fingerprint),
+          label: const Text('Разблокировать'),
+          onPressed: () async {
+            final ok = await s.unlockModule(m);
+            if (mounted) {
+              setState(() {});
+              if (!ok) toast(context, 'Не удалось подтвердить личность');
+            }
+          },
+        ),
+      ]),
+    );
   }
 
   Widget _body() {

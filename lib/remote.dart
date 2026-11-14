@@ -2,7 +2,69 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+
+/// Одна запись журнала передачи данных.
+class NetEvent {
+  final int at;
+  final String op; // GET, PUT, … или «этап»
+  final String target;
+  final int up;
+  final int down;
+  final int ms;
+  final String result;
+  NetEvent(this.at, this.op, this.target, this.up, this.down, this.ms, this.result);
+}
+
+/// Счётчики и подробный журнал сетевых операций (для статус-бара и окна процессов).
+class Net {
+  static int up = 0;
+  static int down = 0;
+  static final List<NetEvent> log = [];
+  static final ValueNotifier<int> tick = ValueNotifier<int>(0);
+  static String _lastStage = '';
+
+  static void add(String op, String target, int u, int d, int ms, String result) {
+    up += u;
+    down += d;
+    log.add(NetEvent(DateTime.now().millisecondsSinceEpoch, op, target, u, d, ms, result));
+    if (log.length > 1500) log.removeRange(0, log.length - 1200);
+    tick.value++;
+  }
+
+  /// Этап синхронизации (текст статуса) — попадает в журнал один раз.
+  static void stage(String text) {
+    if (text.isEmpty || text == _lastStage) return;
+    _lastStage = text;
+    add('этап', text, 0, 0, 0, '');
+  }
+
+  /// Скорость (байт/с) за последние 4 секунды: отдача и загрузка.
+  static (double, double) speed() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    var u = 0, d = 0;
+    for (var i = log.length - 1; i >= 0; i--) {
+      final e = log[i];
+      if (now - e.at > 4000) break;
+      u += e.up;
+      d += e.down;
+    }
+    return (u / 4, d / 4);
+  }
+
+  static String fmtSpeed(double bps) {
+    if (bps < 1024) return '${bps.round()} Б/с';
+    if (bps < 1024 * 1024) return '${(bps / 1024).toStringAsFixed(1)} КБ/с';
+    return '${(bps / 1024 / 1024).toStringAsFixed(2)} МБ/с';
+  }
+
+  static String fmtSize(int b) {
+    if (b < 1024) return '$b Б';
+    if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} КБ';
+    return '${(b / 1024 / 1024).toStringAsFixed(2)} МБ';
+  }
+}
 
 /// Хранилище данных: WebDAV или обычная папка на устройстве.
 /// Пути всегда вида «/папка/файл».
@@ -51,6 +113,7 @@ class Dav extends Remote {
       {List<int>? body, Map<String, String>? headers}) async {
     Object? last;
     for (var i = 0; i < 3; i++) {
+      final t0 = DateTime.now();
       try {
         final req = http.Request(method, _u(path));
         req.headers['Authorization'] = auth;
@@ -58,6 +121,8 @@ class Dav extends Remote {
         if (body != null) req.bodyBytes = body;
         final s = await req.send().timeout(const Duration(seconds: 90));
         final r = await http.Response.fromStream(s);
+        Net.add(method, path, body?.length ?? 0, r.bodyBytes.length,
+            DateTime.now().difference(t0).inMilliseconds, 'HTTP ${r.statusCode}');
         if ((r.statusCode >= 500 || r.statusCode == 429) && i < 2) {
           last = 'HTTP ${r.statusCode}';
           await Future<void>.delayed(Duration(seconds: 1 << i));
@@ -71,6 +136,7 @@ class Dav extends Remote {
       } on http.ClientException catch (e) {
         last = e;
       }
+      Net.add(method, path, 0, 0, DateTime.now().difference(t0).inMilliseconds, 'ошибка: $last');
       await Future<void>.delayed(Duration(seconds: 1 << i));
     }
     throw 'Нет связи с сервером: $last';

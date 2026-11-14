@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'backup.dart';
 import 'comments_view.dart';
 import 'groups.dart';
 import 'hub.dart';
@@ -15,7 +16,14 @@ import 'widgets.dart';
 class EditorScreen extends StatefulWidget {
   final Store store;
   final Note note;
-  const EditorScreen({super.key, required this.store, required this.note});
+  final bool embedded; // внутри трёхколоночного десктопного вида
+  final VoidCallback? onClosed;
+  const EditorScreen(
+      {super.key,
+      required this.store,
+      required this.note,
+      this.embedded = false,
+      this.onClosed});
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -86,13 +94,18 @@ class _EditorScreenState extends State<EditorScreen> {
           MapEntry(g.vault, g.name.isEmpty ? 'Общая папка' : g.name),
       ];
 
-  bool get _ro =>
-      n.isGroup && (Groups.byVault(s.settings, n.vault)?.readOnly ?? false);
+  Group? get _grp => n.isGroup ? Groups.byVault(s.settings, n.vault) : null;
+
+  bool get _ro {
+    final g = _grp;
+    return g != null && !g.canEditNote(n, s.settings.profileId);
+  }
 
   void _touch() {
     if (_ro) return;
     n.updatedAt = nowMs();
-    n.editor = s.author;
+    final gn = _grp?.myName ?? '';
+    n.editor = gn.isEmpty ? s.author : gn;
     _deb?.cancel();
     _deb = Timer(const Duration(milliseconds: 600), () {
       s.changed();
@@ -143,6 +156,20 @@ class _EditorScreenState extends State<EditorScreen> {
     _touch();
   }
 
+  Future<void> _exportMd() async {
+    final safe = (n.title.trim().isEmpty ? 'note' : n.title.trim()).replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    try {
+      final hasFiles = n.attachmentIds().any(s.hasAttachment);
+      final ok = hasFiles
+          ? await saveBytes('$safe.zip', await Jex.exportMarkdown(s, [n]))
+          : await saveBytes('$safe.md',
+              utf8.encode('# ${n.title}\n\n${Jex.bodyOf(n, (b) => null)}\n'));
+      if (ok && mounted) toast(context, 'Экспортировано');
+    } catch (e) {
+      if (mounted) toast(context, 'Ошибка экспорта: $e');
+    }
+  }
+
   void _menu(String v) {
     if (v == 'event') {
       _toCalendar();
@@ -150,9 +177,15 @@ class _EditorScreenState extends State<EditorScreen> {
       n.deleted = true;
       n.updatedAt = nowMs();
       Hub.noteDeleted(s, n);
-      Navigator.of(context).pop();
+      if (widget.embedded) {
+        widget.onClosed?.call();
+      } else {
+        Navigator.of(context).pop();
+      }
     } else if (v == 'history') {
       _showHistory();
+    } else if (v == 'md') {
+      _exportMd();
     } else if (v == 'fav') {
       setState(() => n.favorite = !n.favorite);
       _touch();
@@ -543,6 +576,7 @@ class _EditorScreenState extends State<EditorScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: !widget.embedded,
         actions: [
           IconButton(
             icon: Icon(n.favorite ? Icons.star : Icons.star_border),
@@ -553,6 +587,7 @@ class _EditorScreenState extends State<EditorScreen> {
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'event', child: Text('Добавить в календарь')),
               PopupMenuItem(value: 'history', child: Text('История версий')),
+              PopupMenuItem(value: 'md', child: Text('Экспорт в Markdown')),
               PopupMenuItem(value: 'delete', child: Text('Удалить')),
             ],
           ),

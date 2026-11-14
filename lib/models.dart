@@ -8,6 +8,9 @@ String newId() {
       '${r.nextInt(1 << 30).toRadixString(36)}';
 }
 
+/// Сколько дней удалённые заметки лежат в корзине.
+const int kTrashDays = 30;
+
 int nowMs() => DateTime.now().millisecondsSinceEpoch;
 
 String two(int x) => x.toString().padLeft(2, '0');
@@ -718,6 +721,10 @@ class Group {
   bool legacy; // группа из прежней версии («Семья»): заметки с vault = 'family'
   bool removed; // владелец удалил меня из группы
   bool readOnly; // владелец ограничил мне редактирование
+  String me; // мой идентификатор в этой группе (пусто — идентификатор профиля, у создателя)
+  String myName; // имя, под которым я вошёл в группу
+  String rights; // view (только просмотр) | edit (полное редактирование) | own (свои файлы + комментарии)
+  String invId; // уникальный ID приглашения, по которому я вошёл
 
   Group({
     required this.id,
@@ -731,7 +738,24 @@ class Group {
     this.legacy = false,
     this.removed = false,
     this.readOnly = false,
+    this.me = '',
+    this.myName = '',
+    this.rights = 'edit',
+    this.invId = '',
   });
+
+  /// Идентификатор участника: у создателя — идентификатор профиля.
+  String memberId(String profileId) => me.isEmpty ? profileId : me;
+
+  /// Только просмотр: либо право «view», либо ограничение владельца.
+  bool get viewOnly => readOnly || rights == 'view';
+
+  /// Можно ли мне править эту заметку группы.
+  bool canEditNote(Note n, String profileId) =>
+      !viewOnly && (rights != 'own' || n.authorId == profileId || n.authorId.isEmpty);
+
+  /// Комментарии разрешены всем, кроме режима «только просмотр».
+  bool get canComment => rights != 'view' && !readOnly;
 
   /// Значение Note.vault для заметок группы.
   String get vault => legacy ? 'family' : 'g:$id';
@@ -752,6 +776,10 @@ class Group {
         'legacy': legacy,
         'removed': removed,
         'readOnly': readOnly,
+        'me': me,
+        'myName': myName,
+        'rights': rights,
+        'invId': invId,
       };
 
   factory Group.fromJson(Map<String, dynamic> j) => Group(
@@ -766,6 +794,10 @@ class Group {
         legacy: (j['legacy'] ?? false) as bool,
         removed: (j['removed'] ?? false) as bool,
         readOnly: (j['readOnly'] ?? false) as bool,
+        me: (j['me'] ?? '') as String,
+        myName: (j['myName'] ?? '') as String,
+        rights: (j['rights'] ?? 'edit') as String,
+        invId: (j['invId'] ?? '') as String,
       );
 }
 
@@ -807,6 +839,8 @@ class Settings {
   String grpPass;
   String grpFolder;
   Map<String, bool> modules; // notes, shared, calendar, pass, backup
+  double fontScale; // масштаб шрифта интерфейса (0.8–1.6)
+  Map<String, int> modLock; // блокировка модуля биометрией: секунды бездействия (0 — при каждом входе)
   List<Group> groups;
   List<String> favorites; // id заметок и папок в избранном (меню слева)
   List<String> pinned; // id заметок и папок, закреплённых на главной
@@ -818,6 +852,8 @@ class Settings {
   bool bkAuto; // после создания бэкапа загружать его на сервер
   bool bkDaily; // делать бэкап сам раз в сутки
   int bkKeep; // сколько последних копий хранить
+  int bkPhoneEvery; // расписание бэкапа телефона: часы (0 — выключено)
+  int bkPhoneLast; // когда делался последний бэкап телефона
   int bkLast;
   int settingsUpdatedAt;
 
@@ -859,6 +895,8 @@ class Settings {
     this.grpPass = '',
     this.grpFolder = '/ASRbox-Group',
     Map<String, bool>? modules,
+    Map<String, int>? modLock,
+    this.fontScale = 1.0,
     List<Group>? groups,
     List<String>? favorites,
     List<String>? pinned,
@@ -870,10 +908,13 @@ class Settings {
     this.bkAuto = false,
     this.bkDaily = false,
     this.bkKeep = 7,
+    this.bkPhoneEvery = 0,
+    this.bkPhoneLast = 0,
     this.bkLast = 0,
     this.settingsUpdatedAt = 0,
   })  : attDone = attDone ?? [],
         groups = groups ?? [],
+        modLock = modLock ?? {},
         favorites = favorites ?? [],
         pinned = pinned ?? [],
         modules = modules ??
@@ -917,6 +958,8 @@ class Settings {
         'grpPass': grpPass,
         'grpFolder': grpFolder,
         'modules': modules,
+        'modLock': modLock,
+        'fontScale': fontScale,
         'groups': groups.map((g) => g.toJson()).toList(),
         'favorites': favorites,
         'pinned': pinned,
@@ -928,6 +971,8 @@ class Settings {
         'bkAuto': bkAuto,
         'bkDaily': bkDaily,
         'bkKeep': bkKeep,
+        'bkPhoneEvery': bkPhoneEvery,
+        'bkPhoneLast': bkPhoneLast,
         'bkLast': bkLast,
         'settingsUpdatedAt': settingsUpdatedAt,
       };
@@ -983,10 +1028,14 @@ class Settings {
       bkAuto: (j['bkAuto'] ?? false) as bool,
       bkDaily: (j['bkDaily'] ?? false) as bool,
       bkKeep: (j['bkKeep'] ?? 7) as int,
+      bkPhoneEvery: (j['bkPhoneEvery'] ?? 0) as int,
+      bkPhoneLast: (j['bkPhoneLast'] ?? 0) as int,
       bkLast: (j['bkLast'] ?? 0) as int,
       groups: ((j['groups'] ?? []) as List)
           .map((e) => Group.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(),
+      fontScale: ((j['fontScale'] ?? 1.0) as num).toDouble(),
+      modLock: ((j['modLock'] ?? {}) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toInt())),
       favorites: ((j['favorites'] ?? []) as List).map((e) => e.toString()).toList(),
       pinned: ((j['pinned'] ?? []) as List).map((e) => e.toString()).toList(),
       settingsUpdatedAt: (j['settingsUpdatedAt'] ?? 0) as int,

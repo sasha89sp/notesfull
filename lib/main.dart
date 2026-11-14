@@ -151,6 +151,16 @@ class _AppState extends State<App> {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      builder: (context, child) => AnimatedBuilder(
+        animation: store,
+        builder: (context, _) {
+          final sc = _unlocked ? store.settings.fontScale : 1.0;
+          final mq = MediaQuery.of(context);
+          return MediaQuery(
+              data: mq.copyWith(textScaler: TextScaler.linear(mq.textScaler.scale(1) * sc)),
+              child: child ?? const SizedBox.shrink());
+        },
+      ),
       home: home,
     );
   }

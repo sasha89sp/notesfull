@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'groups.dart';
 import 'models.dart';
 import 'store.dart';
 import 'widgets.dart';
@@ -33,13 +34,15 @@ class _CommentsViewState extends State<CommentsView> {
     final s = widget.store;
     final now = DateTime.now();
     final id = newId();
+    final gr = Groups.byVault(s.settings, widget.note.vault);
+    final who = (gr == null || gr.myName.isEmpty) ? s.author : gr.myName;
     final file =
-        '${now.year}-${two(now.month)}-${two(now.day)}_${two(now.hour)}${two(now.minute)}_${_slug(s.author)}_$id.enc';
+        '${now.year}-${two(now.month)}-${two(now.day)}_${two(now.hour)}${two(now.minute)}_${_slug(who)}_$id.enc';
     s.comments.add(Comment(
       id: id,
       noteId: widget.note.id,
       authorId: s.profileId,
-      author: s.author,
+      author: who,
       at: nowMs(),
       text: text,
       file: file,
@@ -47,6 +50,11 @@ class _CommentsViewState extends State<CommentsView> {
     _ctl.clear();
     s.commentsChanged();
     setState(() {});
+  }
+
+  bool get _canComment {
+    final g = Groups.byVault(widget.store.settings, widget.note.vault);
+    return g == null || g.canComment;
   }
 
   bool _canDelete(Comment c) {
@@ -107,6 +115,10 @@ class _CommentsViewState extends State<CommentsView> {
                 : Text(c.text),
           ]),
         ),
+      if (!_canComment)
+        Text('Комментарии в этой группе недоступны: у вас режим «только просмотр».',
+            style: TextStyle(color: Pal.secondary(context), fontSize: 12))
+      else
       Row(children: [
         Expanded(
           child: TextField(

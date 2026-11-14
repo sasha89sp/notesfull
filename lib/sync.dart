@@ -11,6 +11,7 @@ import 'models.dart';
 import 'pass_store.dart';
 import 'remote.dart';
 import 'store.dart';
+import 'util.dart';
 import 'synchist.dart';
 
 class SyncService {
@@ -206,19 +207,46 @@ class SyncService {
     var changed = false;
     try {
 
-    // скачиваем изменённое на сервере
-    for (final e in manifest.entries.toList()) {
-      tok.check();
+    // Корзина: заметки, удалённые более 30 дней назад, стираются и на сервере
+    final purgeBefore = nowMs() - kTrashDays * 24 * 3600 * 1000;
+    for (final n in List<Note>.of(s.notes)) {
+      if (n.vault == vault && n.deleted && n.updatedAt < purgeBefore && (n.syncedAt >= n.updatedAt || n.syncedAt == 0)) {
+        await dav.delete('$dir/${n.id}.enc');
+        manifest.remove(n.id);
+        s.notes.remove(n);
+        changed = true;
+      }
+    }
+
+    // скачиваем изменённое на сервере: запросы идут параллельно, применение — по очереди
+    final todo = <MapEntry<String, int>>[];
+    for (final e in manifest.entries) {
       final local = s.byId(e.key);
       if (local != null && local.vault != vault) continue;
       if (local != null && e.value <= local.syncedAt) continue;
-
-      final bytes = await dav.get('$dir/${e.key}.enc');
-      if (bytes == null) continue;
-      final clear = await Crypto.decrypt(key, bytes);
-      final remote =
-          Note.fromJson(jsonDecode(utf8.decode(clear)) as Map<String, dynamic>);
+      todo.add(e);
+    }
+    final fetched = <String, Note>{};
+    await runPool([
+      for (final e in todo)
+        () async {
+          tok.check();
+          final bytes = await dav.get('$dir/${e.key}.enc');
+          if (bytes == null) return;
+          final obj = await Crypto.decryptJson(key, bytes);
+          fetched[e.key] = Note.fromJson(Map<String, dynamic>.from(obj as Map));
+        }
+    ]);
+    for (final e in todo) {
+      tok.check();
+      final remote = fetched[e.key];
+      if (remote == null) continue;
+      final local = s.byId(e.key);
       remote.vault = vault;
+      if (grp != null && remote.authorId != s.settings.profileId && remote.editor != (grp.myName.isEmpty ? s.author : grp.myName) &&
+          (local != null || s.notes.any((x) => x.vault == vault))) {
+        s.notices.putIfAbsent(grp.name.isEmpty ? 'Общая папка' : grp.name, () => [0, 0])[1]++;
+      }
 
       if (local == null) {
         remote.syncedAt = remote.updatedAt;
@@ -251,24 +279,29 @@ class SyncService {
       }
     }
 
-    // загружаем локальные изменения
+    // загружаем локальные изменения параллельно
+    final toUp = <Note>[];
     for (final n in List<Note>.of(s.notes)) {
-      tok.check();
       if (n.vault != vault) continue;
-      if (grp != null && grp.readOnly) continue; // владелец ограничил редактирование
+      if (grp != null && !grp.canEditNote(n, s.settings.profileId)) continue; // права участника
       final inManifest = manifest.containsKey(n.id);
       if (inManifest && n.updatedAt <= n.syncedAt) continue;
-
-      final stamp = n.updatedAt;
-      final data = await Crypto.encrypt(
-          key, utf8.encode(jsonEncode(n.toJson(withHistory: false))));
-      await dav.putAtomic('$dir/${n.id}.enc', data);
-      manifest[n.id] = stamp;
-      n.syncedAt = stamp;
-      n.markSynced();
-      r.u(kind);
-      changed = true;
+      toUp.add(n);
     }
+    await runPool([
+      for (final n in toUp)
+        () async {
+          tok.check();
+          final stamp = n.updatedAt;
+          final data = await Crypto.encryptJson(key, n.toJson(withHistory: false));
+          await dav.putAtomic('$dir/${n.id}.enc', data);
+          manifest[n.id] = stamp;
+          n.syncedAt = stamp;
+          n.markSynced();
+          r.u(kind);
+          changed = true;
+        }
+    ]);
 
     } finally {
       // манифест записываем и при отмене: уже загруженное не уйдёт повторно
@@ -380,6 +413,9 @@ class SyncService {
 
   // ---------------------------------------------------------------- комментарии
 
+  static final Map<String, int> _cSeen = {};
+  static final Map<String, int> _cFull = {};
+
   static Future<void> _comments(
       Remote dav, Store s, Group g, SecretKey fk, SyncStats r, CancelToken tok) async {
     final famNotes =
@@ -387,15 +423,33 @@ class SyncService {
     if (famNotes.isEmpty) return;
     final familyDir = g.notesDir;
     await dav.mkcol('$familyDir/comments');
+    // индекс комментариев: один файл вместо опроса папки каждой заметки.
+    // Полная проверка — раз в 6 часов и при первом запуске, чтобы не потерять гонки записи индекса.
+    final idx = <String, int>{};
+    try {
+      final ib = await dav.get('$familyDir/comments/_idx.json');
+      if (ib != null) {
+        (jsonDecode(utf8.decode(ib)) as Map).forEach((k, v) => idx[k.toString()] = (v as num).toInt());
+      }
+    } catch (_) {}
+    final full = nowMs() - (_cFull[g.id] ?? 0) > 6 * 3600 * 1000;
+    final touched = <String, int>{};
 
-    for (final n in famNotes) {
+    await runPool([
+      for (final n in famNotes)
+        () async {
       tok.check();
       final d = '$familyDir/comments/${n.id}';
-      final names = await dav.list(d);
+      final ck = '${g.id}:${n.id}';
+      final ts = idx[n.id] ?? 0;
       final mine = s.comments.where((c) => c.noteId == n.id).toList();
       final hasUnsynced =
           mine.any((c) => !c.synced || (c.deleted && !c.delSynced));
-      if (names.isEmpty && !hasUnsynced) continue;
+      if (!full && !hasUnsynced && _cSeen.containsKey(ck) && ts <= _cSeen[ck]!) return;
+      final names = await dav.list(d);
+      _cSeen[ck] = ts;
+      if (names.isEmpty && !hasUnsynced) return;
+      if (hasUnsynced) touched[n.id] = nowMs();
       if (hasUnsynced) await dav.mkcol(d);
 
       final delMarks = names
@@ -446,6 +500,22 @@ class SyncService {
           r.u('comments');
         }
       }
+        }
+    ]);
+    if (full) _cFull[g.id] = nowMs();
+    if (touched.isNotEmpty) {
+      // обновляем индекс: берём свежую версию и поднимаем отметки времени
+      try {
+        final cur = <String, int>{};
+        final ib = await dav.get('$familyDir/comments/_idx.json');
+        if (ib != null) {
+          (jsonDecode(utf8.decode(ib)) as Map).forEach((k, v) => cur[k.toString()] = (v as num).toInt());
+        }
+        touched.forEach((k, v) {
+          if ((cur[k] ?? 0) < v) cur[k] = v;
+        });
+        await dav.putAtomic('$familyDir/comments/_idx.json', utf8.encode(jsonEncode(cur)));
+      } catch (_) {}
     }
   }
 
@@ -469,7 +539,7 @@ class SyncService {
     final dir = '${grp.chatDir}/$room';
     var changed = false;
     final unsent = s.chat.where((m) => m.room == room && !m.synced).toList();
-    if (unsent.isNotEmpty && !grp.readOnly) {
+    if (unsent.isNotEmpty && !grp.viewOnly) {
       await g.mkcolAll(dir);
       for (final m in unsent) {
         tok.check();
@@ -493,6 +563,9 @@ class SyncService {
             jsonDecode(utf8.decode(await Crypto.decrypt(fk, b))) as Map));
         m.room = room;
         m.synced = true;
+        if (have.isNotEmpty && m.authorId != s.settings.profileId) {
+          s.notices.putIfAbsent(grp.name.isEmpty ? 'Общая папка' : grp.name, () => [0, 0])[0]++;
+        }
         s.chat.add(m);
         changed = true;
         r.d('chat');
@@ -521,6 +594,7 @@ class SyncService {
 
     final done = s.settings.attDone;
     final noteIds = {for (final x in s.notes) x.id};
+    final jobs = <Future<void> Function()>[];
     for (final n in List<Note>.of(s.notes)) {
       tok.check();
       if (n.deleted) continue;
@@ -535,6 +609,9 @@ class SyncService {
         dir = '${g.notesDir}/attachments';
       }
       if (key == null) continue;
+      final k = key;
+      final rem = rm;
+      final adir = dir;
       var dirMade = false;
 
       for (final id in n.attachmentIds()) {
@@ -542,24 +619,31 @@ class SyncService {
         final tag = '${n.vault}:$id';
         if (s.hasAttachment(id)) {
           if (done.contains(tag)) continue;
-          final plain = await s.readAttachment(id);
-          if (plain == null) continue;
           if (!dirMade) {
-            await rm.mkcol(dir);
+            await rem.mkcol(adir);
             dirMade = true;
           }
-          await rm.putAtomic('$dir/$id.enc', await Crypto.encrypt(key, plain));
-          done.add(tag);
-          r.u('attachments');
+          jobs.add(() async {
+            tok.check();
+            final plain = await s.readAttachment(id);
+            if (plain == null) return;
+            await rem.putAtomic('$adir/$id.enc', await Crypto.encrypt(k, plain));
+            done.add(tag);
+            r.u('attachments');
+          });
         } else {
-          final bytes = await rm.get('$dir/$id.enc');
-          if (bytes == null) continue;
-          final plain = await Crypto.decrypt(key, bytes);
-          await s.writeAttachment(id, plain);
-          done.add(tag);
-          r.d('attachments');
+          jobs.add(() async {
+            tok.check();
+            final bytes = await rem.get('$adir/$id.enc');
+            if (bytes == null) return;
+            final plain = await Crypto.decrypt(k, bytes);
+            await s.writeAttachment(id, plain);
+            done.add(tag);
+            r.d('attachments');
+          });
         }
       }
     }
+    await runPool(jobs, limit: 4);
   }
 }

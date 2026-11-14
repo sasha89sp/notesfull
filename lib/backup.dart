@@ -832,6 +832,59 @@ class Jex {
         '${nDel > 0 ? ', из корзины Joplin пропущено: $nDel' : ''}';
   }
 
+  /// Заметки в Markdown: папки блокнотов → папки архива, вложения → `_resources/`.
+  /// Если заметка одна и без вложений, возвращается просто текст .md (см. [singleMarkdown]).
+  static Future<List<int>> exportMarkdown(Store s, List<Note> notes) async {
+    final ar = Archive();
+    String safe(String x) {
+      final t = x.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+      return t.isEmpty ? 'Без названия' : t;
+    }
+
+    final taken = <String>{};
+    final resDone = <String>{};
+    for (final n in notes.where((n) => !n.deleted)) {
+      final files = <String, String>{}; // id вложения → имя файла в _resources
+      String nameFor(String id) {
+        var name = '';
+        for (final b in n.blocks) {
+          if (b.att == id) name = (b.meta['name'] ?? '').toString();
+          if (name.isEmpty) {
+            final mm = RegExp('!?\\[([^\\]]*)\\]\\(:/${RegExp.escape(id)}').firstMatch(b.content);
+            if (mm != null) name = mm.group(1) ?? '';
+          }
+        }
+        final e = _ext(name);
+        return e.isEmpty ? id : '$id.$e';
+      }
+
+      String? ref(String id) {
+        if (!s.hasAttachment(id)) return null;
+        return files.putIfAbsent(id, () => nameFor(id));
+      }
+
+      var body = bodyOf(n, (b) => b.att == null ? null : ref(b.att!), refId: ref);
+      body = body.replaceAllMapped(RegExp(r':/([A-Za-z0-9]+)'), (m) {
+        final f = files[m.group(1)!];
+        return f == null ? m.group(0)! : '_resources/$f';
+      });
+      final folder = n.folder.isEmpty ? '' : s.folderPath(n.folder).split(' / ').map(safe).join('/');
+      var path = '${folder.isEmpty ? '' : '$folder/'}${safe(n.title)}';
+      var k = 1;
+      while (!taken.add(path.toLowerCase())) {
+        path = '${folder.isEmpty ? '' : '$folder/'}${safe(n.title)} (${++k})';
+      }
+      final text = utf8.encode('# ${n.title}\n\n$body\n');
+      ar.addFile(ArchiveFile('$path.md', text.length, text));
+      for (final e in files.entries) {
+        if (!resDone.add(e.key)) continue;
+        final bytes = await s.readAttachment(e.key);
+        if (bytes != null) ar.addFile(ArchiveFile('_resources/${e.value}', bytes.length, bytes));
+      }
+    }
+    return ZipEncoder().encode(ar)!;
+  }
+
   static Future<List<int>> exportFrom(Store s) async {
     final notes = s.notes.where((n) => !n.deleted).toList();
     final att = <String, List<int>>{};

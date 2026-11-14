@@ -476,12 +476,7 @@ class _NotesListState extends State<NotesList> {
         }
         if (_q.isNotEmpty) {
           final q = _q.toLowerCase();
-          list = list
-              .where((n) =>
-                  n.title.toLowerCase().contains(q) ||
-                  n.tags.any((t) => t.toLowerCase().contains(q)) ||
-                  n.preview(100000).toLowerCase().contains(q))
-              .toList();
+          list = list.where((n) => s.matches(n, q)).toList();
         }
         list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 

@@ -28,6 +28,21 @@ Future<Uint8List> _decIso(List<dynamic> a) async {
   return Uint8List.fromList(clear);
 }
 
+Future<Object?> _decJsonIso(List<dynamic> a) async {
+  final box = SecretBox.fromConcatenation(a[1] as Uint8List,
+      nonceLength: 12, macLength: 16);
+  final clear = await AesGcm.with256bits()
+      .decrypt(box, secretKey: SecretKey(a[0] as List<int>));
+  return jsonDecode(utf8.decode(clear));
+}
+
+Future<Uint8List> _encJsonIso(List<dynamic> a) async {
+  final bytes = Uint8List.fromList(utf8.encode(jsonEncode(a[1])));
+  final box = await AesGcm.with256bits()
+      .encrypt(bytes, secretKey: SecretKey(a[0] as List<int>));
+  return Uint8List.fromList(box.concatenation());
+}
+
 /// AES-256-GCM + PBKDF2-HMAC-SHA256 (100 000 итераций).
 class Crypto {
   static final AesGcm _aes = AesGcm.with256bits();
@@ -53,6 +68,20 @@ class Crypto {
     }
     final box = await _aes.encrypt(data, secretKey: key);
     return Uint8List.fromList(box.concatenation());
+  }
+
+  /// Расшифровка и разбор JSON целиком в отдельном потоке (большие файлы не подвешивают интерфейс).
+  static Future<Object?> decryptJson(SecretKey key, List<int> data) async {
+    if (data.length > 32 * 1024) {
+      return compute(_decJsonIso,
+          <dynamic>[await key.extractBytes(), Uint8List.fromList(data)]);
+    }
+    return jsonDecode(utf8.decode(await decrypt(key, data)));
+  }
+
+  /// Сериализация и шифрование в отдельном потоке. [obj] — только списки, словари и примитивы.
+  static Future<Uint8List> encryptJson(SecretKey key, Object obj) async {
+    return compute(_encJsonIso, <dynamic>[await key.extractBytes(), obj]);
   }
 
   static Future<Uint8List> decrypt(SecretKey key, List<int> data) async {

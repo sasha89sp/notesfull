@@ -112,7 +112,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     final st = s.settings;
-    final ro = widget.group.readOnly;
+    final ro = widget.group.viewOnly;
     final msgs = s.chat.where((m) => m.room == widget.group.id).toList();
     final sec = Pal.secondary(context);
     return Column(children: [

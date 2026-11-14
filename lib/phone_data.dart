@@ -1,6 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:archive/archive.dart';
 import 'package:flutter/services.dart';
+import 'applog.dart';
+import 'backup.dart';
+import 'crypto.dart';
+import 'models.dart';
+import 'store.dart';
 
 /// Данные телефона (Android): журнал звонков, контакты, SMS, сети Wi-Fi.
 /// Нативная часть — BackupBridge.kt (ci/patch_backup.py).
@@ -128,6 +134,104 @@ class PhoneData {
         return 'отклонённый';
       default:
         return 'тип $t';
+    }
+  }
+
+  // ----------------------------------------------------------- бэкап телефона одной кнопкой
+
+  static bool _busy = false;
+
+  static String _stamp() {
+    final d = DateTime.now();
+    String x(int v) => v.toString().padLeft(2, '0');
+    return '${d.year}${x(d.month)}${x(d.day)}_${x(d.hour)}${x(d.minute)}${x(d.second)}';
+  }
+
+  /// Собирает всё, что доступно с телефона (звонки, контакты, SMS, Wi-Fi), в один архив.
+  /// [ask] — запрашивать недостающие разрешения (в фоне по расписанию — нет).
+  /// Возвращает (архив, подпись). Категории без разрешения пропускаются.
+  static Future<(List<int>, String)> collect(Store s, {required bool ask}) async {
+    final ar = Archive();
+    final done = <String>[];
+    final skipped = <String>[];
+    void add(String name, List<int> b) => ar.addFile(ArchiveFile(name, b.length, b));
+
+    Future<bool> ok(String g) async =>
+        await hasPerms(g) || (ask && await requestPerms(g));
+
+    if (await ok('calls')) {
+      final l = await exportCalls();
+      add('calls.json', utf8.encode(jsonEncode(l)));
+      done.add('звонки ${l.length}');
+    } else {
+      skipped.add('звонки');
+    }
+    if (await ok('contacts')) {
+      final l = await exportContacts();
+      add('contacts.json', utf8.encode(jsonEncode(l)));
+      add('contacts.vcf', utf8.encode(toVcf(l)));
+      done.add('контакты ${l.length}');
+    } else {
+      skipped.add('контакты');
+    }
+    if (await ok('sms')) {
+      final l = await exportSms();
+      add('sms.json', utf8.encode(jsonEncode(l)));
+      done.add('SMS ${l.length}');
+    } else {
+      skipped.add('SMS');
+    }
+    if (await ok('wifi')) {
+      final l = await exportWifi();
+      add('wifi.json', utf8.encode(jsonEncode(l)));
+      done.add('Wi-Fi ${l.length}');
+    } else {
+      skipped.add('Wi-Fi');
+    }
+    if (done.isEmpty) throw 'Нет ни одного разрешения для чтения данных телефона';
+    add('manifest.json', utf8.encode(jsonEncode({'created': DateTime.now().toIso8601String(), 'items': done})));
+    final bytes = ZipEncoder().encode(ar);
+    if (bytes == null) throw 'Не удалось собрать архив';
+    return (bytes, '${done.join(', ')}${skipped.isEmpty ? '' : '. Пропущено (нет разрешения): ${skipped.join(', ')}'}');
+  }
+
+  /// Одна кнопка «+»: собрать всё и сразу загрузить в облако (если оно настроено).
+  /// Файл шифруется ключом профиля. Если облако не настроено — вернёт байты для сохранения.
+  static Future<({String name, List<int> bytes, String info, bool uploaded})> runAll(Store s,
+      {required bool ask, bool upload = true}) async {
+    if (_busy) throw 'Бэкап телефона уже выполняется';
+    _busy = true;
+    try {
+      final (zip, info) = await collect(s, ask: ask);
+      var bytes = zip;
+      var name = 'asrbox_phone_${_stamp()}.zip';
+      if (s.syncKey != null) {
+        bytes = await Crypto.encrypt(s.syncKey!, zip);
+        name = '$name.enc';
+      }
+      var up = false;
+      if (upload && Backup.canUpload(s.settings)) {
+        await Backup.uploadPhone(s, name, bytes);
+        up = true;
+      }
+      s.settings.bkPhoneLast = nowMs();
+      await s.saveSettings(touch: false);
+      AppLog.I.i('backup', 'Бэкап телефона: $info${up ? ' (загружен)' : ''}');
+      return (name: name, bytes: bytes, info: info, uploaded: up);
+    } finally {
+      _busy = false;
+    }
+  }
+
+  /// По расписанию (пока приложение открыто): без запроса разрешений.
+  static Future<void> autoIfDue(Store s) async {
+    final st = s.settings;
+    if (!available || st.bkPhoneEvery <= 0 || s.key == null || !Backup.canUpload(st)) return;
+    if (nowMs() - st.bkPhoneLast < Duration(hours: st.bkPhoneEvery).inMilliseconds) return;
+    try {
+      await runAll(s, ask: false);
+    } catch (e) {
+      AppLog.I.e('backup', 'Автобэкап телефона не удался: $e');
     }
   }
 }

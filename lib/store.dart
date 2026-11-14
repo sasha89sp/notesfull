@@ -14,6 +14,8 @@ import 'crypto.dart';
 import 'google.dart';
 import 'groups.dart';
 import 'models.dart';
+import 'notify.dart';
+import 'remote.dart';
 import 'sync.dart';
 import 'synchist.dart';
 import 'util.dart';
@@ -333,8 +335,7 @@ class Store extends ChangeNotifier {
     Future<dynamic> readJson(String n) async {
       final f = _f(n);
       final v = await readValid<dynamic>(f, (b) async {
-        final data = await Crypto.decrypt(k, b);
-        return jsonDecode(utf8.decode(data));
+        return Crypto.decryptJson(k, b);
       });
       if (v == null && await f.exists()) {
         AppLog.I.e('store', 'Файл $n повреждён и резервной копии нет');
@@ -382,6 +383,42 @@ class Store extends ChangeNotifier {
         : (h as List)
             .map((x) => SyncRecord.fromJson(Map<String, dynamic>.from(x as Map)))
             .toList();
+  }
+
+  // ------------------------------------------------------------ блокировка модулей
+
+  /// Новое в общих папках, найденное при синхронизации: «название группы» → [сообщения, правки].
+  final Map<String, List<int>> notices = {};
+
+  final Map<String, int> _modOk = {}; // когда модуль был разблокирован / последний раз активен
+
+  /// Модуль закрыт блокировкой? Работает отдельно для «Общая папка» и «Пароли».
+  bool moduleLocked(String m) {
+    final to = settings.modLock[m];
+    if (to == null) return false;
+    final t = _modOk[m];
+    if (t == null) return true;
+    return nowMs() - t > to * 1000;
+  }
+
+  /// Отметка активности: вызывается, пока модуль открыт (и при выходе из него).
+  void moduleTouch(String m) => _modOk[m] = nowMs();
+
+  void moduleLock(String m) => _modOk.remove(m);
+
+  Future<bool> unlockModule(String m) async {
+    try {
+      final la = LocalAuthentication();
+      if (!await la.isDeviceSupported()) return false;
+      final ok = await la.authenticate(
+        localizedReason: 'Подтвердите доступ к разделу',
+        options: const AuthenticationOptions(stickyAuth: true),
+      );
+      if (ok) moduleTouch(m);
+      return ok;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ------------------------------------------------------------ биометрия
@@ -456,8 +493,14 @@ class Store extends ChangeNotifier {
     _chain = _chain.then((_) async {
       final k = key;
       if (k == null) return;
-      final bytes = utf8.encode(jsonEncode(data));
-      await writeAtomic(_f(name), await Crypto.encrypt(k, bytes));
+      // небольшие данные шифруем сразу, большие — вместе с сериализацией в отдельном потоке
+      final Uint8List enc;
+      if (data is List && data.length > 300) {
+        enc = await Crypto.encryptJson(k, data);
+      } else {
+        enc = await Crypto.encrypt(k, utf8.encode(jsonEncode(data)));
+      }
+      await writeAtomic(_f(name), enc);
     }).catchError((Object e) {
       debugPrint('save error: $e');
     });
@@ -493,7 +536,9 @@ class Store extends ChangeNotifier {
 
   Future<void> sendChat(String room, String text) async {
     await ensureChat();
-    chat.add(ChatMsg.create(room, settings.profileId, author, text));
+    final gr = Groups.byId(settings, room);
+    final nm = (gr == null || gr.myName.isEmpty) ? author : gr.myName;
+    chat.add(ChatMsg.create(room, settings.profileId, nm, text));
     notifyListeners();
     await saveChat();
     schedSync();
@@ -618,6 +663,47 @@ class Store extends ChangeNotifier {
     changed();
   }
 
+  // ------------------------------------------------------------ поиск по индексу
+
+  /// Локальный индекс: нижний регистр текста каждой заметки, пересобирается только у изменённых.
+  final Map<String, (int, String)> _sidx = {};
+
+  String _searchText(Note n) {
+    final e = _sidx[n.id];
+    if (e != null && e.$1 == n.updatedAt) return e.$2;
+    final t = '${n.title}\n${n.tags.join(' ')}\n${n.preview(100000)}'.toLowerCase();
+    _sidx[n.id] = (n.updatedAt, t);
+    return t;
+  }
+
+  /// Все слова запроса должны встречаться в заметке (в любом порядке).
+  bool matches(Note n, String q) {
+    final t = _searchText(n);
+    for (final w in q.toLowerCase().split(RegExp(r'\s+'))) {
+      if (w.isNotEmpty && !t.contains(w)) return false;
+    }
+    return true;
+  }
+
+  /// Прогрев индекса порциями в фоне, чтобы первый поиск был мгновенным.
+  /// Без синхронизации корзину чистим только локально.
+  void purgeTrashLocal() {
+    if (settings.syncConfigured || settings.googleConfigured) return;
+    final cut = nowMs() - kTrashDays * 24 * 3600 * 1000;
+    notes.removeWhere((n) => n.deleted && n.updatedAt < cut);
+  }
+
+  Future<void> warmSearch() async {
+    purgeTrashLocal();
+    var i = 0;
+    for (final n in List<Note>.of(notes)) {
+      if (n.deleted) continue;
+      _searchText(n);
+      if (++i % 40 == 0) await Future<void>.delayed(Duration.zero);
+    }
+    _sidx.removeWhere((id, _) => !notes.any((n) => n.id == id));
+  }
+
   // ------------------------------------------------------------ избранное и закрепление
 
   bool isFolderFav(String id) => settings.favorites.contains(id);
@@ -726,6 +812,7 @@ class Store extends ChangeNotifier {
   void setProgress(String text, [double? frac]) {
     progressText = text;
     progress = frac;
+    Net.stage(text);
     final t = nowMs();
     if (t - _lastProgressNotify < 200) return;
     _lastProgressNotify = t;
@@ -793,6 +880,17 @@ class Store extends ChangeNotifier {
       AppLog.I.i('sync', 'Синхронизация отменена пользователем');
     }
 
+    if (notices.isNotEmpty) {
+      final parts = <String>[];
+      notices.forEach((g, v) {
+        final x = <String>[];
+        if (v[0] > 0) x.add('сообщений: ${v[0]}');
+        if (v[1] > 0) x.add('изменённых заметок: ${v[1]}');
+        parts.add('«$g» — ${x.join(', ')}');
+      });
+      notices.clear();
+      Notifier.I.notifyNew('Общая папка: новое', parts.join('\n'));
+    }
     if (rec.status != 'cancelled') rec.status = failed ? 'error' : 'ok';
     rec.up = all.up;
     rec.down = all.down;

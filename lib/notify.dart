@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
@@ -58,6 +59,29 @@ class Notifier {
       }
     }
     _last = now;
+  }
+
+  /// Уведомление о новом в общей папке; показывается, только когда приложение не на экране.
+  Future<void> notifyNew(String title, String body) async {
+    if (!Platform.isAndroid || !_ready) return;
+    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) return;
+    try {
+      await _fln.show(
+        900000,
+        title,
+        body,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'shared',
+            'Общая папка',
+            channelDescription: 'Новые сообщения и правки в общих папках',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+            styleInformation: BigTextStyleInformation(''),
+          ),
+        ),
+      );
+    } catch (_) {}
   }
 
   Timer? _deb;

@@ -67,7 +67,7 @@ class MdOps {
   static final RegExp _anyPrefix =
       RegExp(r'^(\s*)(#{1,6} |> |[-*+] \[[ xX]\] |[-*+] |\d+[.)] )');
 
-  static String _strip(String line) => line.replaceFirst(_anyPrefix, r'$1');
+  static String _strip(String line) => line.replaceFirstMapped(_anyPrefix, (m) => m.group(1) ?? '');
 
   /// Префикс строк: маркер списка, цитата, чек-бокс. Если у всех строк уже есть такой
   /// префикс — он снимается; чужой префикс заменяется.

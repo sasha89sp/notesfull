@@ -114,7 +114,7 @@ void main() {
         id: 'g1', name: 'Семья', url: 'https://dav.example', user: 'u', pass: 'p',
         folder: '/Shared', key: key, owner: 'o1');
     for (final enc in [false, true]) {
-      final text = await Groups.invite(g, encrypted: enc);
+      final text = await Groups.encode(g, '13112026200510', 'own', encrypted: enc);
       expect(text.contains('\n'), isFalse);
       final r = await Groups.parseInvite(text);
       expect(r.url, g.url);
@@ -122,8 +122,10 @@ void main() {
       expect(r.pass, 'p');
       expect(r.folder, '/Shared');
       expect(r.key, key);
+      expect(r.invId, '13112026200510');
+      expect(r.rights, 'own');
     }
-    final enc = await Groups.invite(g, encrypted: true);
+    final enc = await Groups.encode(g, '13112026200510', 'own', encrypted: true);
     expect(enc.contains('https://dav.example'), isFalse);
     expect(enc.contains('"p"'), isFalse);
   });
@@ -132,6 +134,22 @@ void main() {
     expect(await Groups.makeKey(phrase: 'abc'), await Groups.makeKey(phrase: 'abc'));
     expect(await Groups.makeKey(), isNot(await Groups.makeKey()));
     expect(Groups.normFolder(' docs '), '/docs');
+  });
+
+  test('Общая папка: метка времени и права', () {
+    expect(Groups.stamp(DateTime(2026, 11, 13, 20, 5, 10)), '13112026200510');
+    expect(Groups.fileKey('a b/Я-1_x'), 'ab-1_x');
+    final g = Group(id: 'g', rights: 'own');
+    final mine = Note.create('Я', 'p1', 'g:g');
+    final other = Note.create('Он', 'p2', 'g:g');
+    expect(g.canEditNote(mine, 'p1'), isTrue);
+    expect(g.canEditNote(other, 'p1'), isFalse);
+    expect(g.canComment, isTrue);
+    g.rights = 'view';
+    expect(g.canEditNote(mine, 'p1'), isFalse);
+    expect(g.canComment, isFalse);
+    g.rights = 'edit';
+    expect(g.canEditNote(other, 'p1'), isTrue);
   });
 
   test('vCard: экспорт и разбор контактов', () {
@@ -143,5 +161,32 @@ void main() {
     expect(back[0]['name'], 'Иван Петров');
     expect(back[0]['phones'], ['+7 900 111-22-33']);
     expect(back[0]['note'], 'строка1\nстрока2');
+  });
+
+  test('runPool: ограничение параллельности и проброс ошибки', () async {
+    var cur = 0, maxCur = 0, done = 0;
+    await runPool([
+      for (var i = 0; i < 20; i++)
+        () async {
+          cur++;
+          if (cur > maxCur) maxCur = cur;
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          cur--;
+          done++;
+        }
+    ], limit: 4);
+    expect(done, 20);
+    expect(maxCur <= 4, isTrue);
+    expect(
+        () => runPool([() async => throw 'boom', () async {}], limit: 2), throwsA('boom'));
+  });
+
+  test('Crypto: JSON шифруется и читается через изолят', () async {
+    final key = await Crypto.deriveFixed('p', 's');
+    final big = [for (var i = 0; i < 4000; i++) {'id': 'n$i', 'text': 'строка $i ' * 5}];
+    final enc = await Crypto.encryptJson(key, big);
+    final back = await Crypto.decryptJson(key, enc) as List;
+    expect(back.length, 4000);
+    expect((back[123] as Map)['id'], 'n123');
   });
 }
