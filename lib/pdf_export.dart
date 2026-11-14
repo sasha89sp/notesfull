@@ -23,7 +23,7 @@ class PdfExport {
     ];
     var code = false;
     final mono = pw.TextStyle(font: _reg, fontSize: 9);
-    for (final raw in Backup.bodyLines(n)) {
+    for (final raw in Jex.bodyLines(n)) {
       final line = raw;
       if (line.trimLeft().startsWith('```')) {
         code = !code;
