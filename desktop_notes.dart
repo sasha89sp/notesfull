@@ -91,7 +91,7 @@ class _DesktopNotesState extends State<DesktopNotes> {
         final selected = d.year==_day.year && d.month==_day.month && d.day==_day.day;
         final isToday = d.year==today.year && d.month==today.month && d.day==today.day;
         return Expanded(child: InkWell(borderRadius: BorderRadius.circular(20), onTap: ()=>setState(()=>_day=d), child: SizedBox(height:29, child: Center(child: Container(width:27,height:27,decoration:BoxDecoration(color:selected?_accent:null,borderRadius:BorderRadius.circular(20),border:!selected&&isToday?Border.all(color:_accent):null),alignment:Alignment.center,child:Text('${d.day}',style:TextStyle(fontSize:11,color:selected?Colors.white:(d.month==_month.month?_ink:_muted),fontWeight:selected?FontWeight.w700:FontWeight.w400)))))));
-      })]}),
+      })]),
     ]));
   }
   Widget _smallIcon(IconData icon, VoidCallback tap) => SizedBox(width:26,height:26,child:IconButton(padding:EdgeInsets.zero,visualDensity:VisualDensity.compact,onPressed:tap,icon:Icon(icon,size:17,color:_muted)));
