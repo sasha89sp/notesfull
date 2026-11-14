@@ -840,7 +840,7 @@ class Settings {
   String grpFolder;
   Map<String, bool> modules; // notes, shared, calendar, pass, backup
   String uiMode; // auto | desktop | mobile
-  List<String> paneOrder; // порядок блоков десктопного вида: side, list, detail
+  List<String> paneOrder; // порядок блоков десктопного вида: side, list, detail, agenda
   Map<String, double> paneW; // ширины боковых блоков
   double fontScale; // масштаб шрифта интерфейса (0.8–1.6)
   Map<String, int> modLock; // блокировка модуля биометрией: секунды бездействия (0 — при каждом входе)

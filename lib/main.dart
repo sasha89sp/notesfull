@@ -38,14 +38,20 @@ Future<void> main() async {
 
 ThemeData _theme(Brightness b) {
   final dark = b == Brightness.dark;
-  final bg = dark ? Colors.black : Colors.white;
-  final accent = dark ? const Color(0xFF0A84FF) : const Color(0xFF007AFF);
-  final fg = dark ? Colors.white : Colors.black;
+  const lightBg = Color(0xFFFAFAF9);
+  const sidebar = Color(0xFFF4F4F5);
+  const ink = Color(0xFF18181B);
+  const muted = Color(0xFF71717A);
+  const line = Color(0xFFE4E4E7);
+  final bg = dark ? const Color(0xFF09090B) : lightBg;
+  final accent = dark ? const Color(0xFF818CF8) : const Color(0xFF4F46E5);
+  final fg = dark ? const Color(0xFFFAFAFA) : ink;
   return ThemeData(
     useMaterial3: true,
     brightness: b,
+    fontFamily: 'DejaVuSans',
     colorScheme: ColorScheme.fromSeed(seedColor: accent, brightness: b)
-        .copyWith(primary: accent),
+        .copyWith(primary: accent, surface: dark ? const Color(0xFF18181B) : Colors.white),
     scaffoldBackgroundColor: bg,
     appBarTheme: AppBarTheme(
       backgroundColor: bg,
@@ -53,13 +59,23 @@ ThemeData _theme(Brightness b) {
       elevation: 0,
       scrolledUnderElevation: 0,
     ),
-    drawerTheme: DrawerThemeData(backgroundColor: bg),
+    drawerTheme: DrawerThemeData(backgroundColor: dark ? const Color(0xFF18181B) : sidebar),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: dark ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7),
-      indicatorColor: accent.withOpacity(0.18),
+      backgroundColor: dark ? const Color(0xFF18181B) : sidebar,
+      indicatorColor: accent.withOpacity(0.14),
+    ),
+    dividerColor: dark ? const Color(0xFF27272A) : line,
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: accent,
+      selectionColor: accent.withOpacity(0.22),
+      selectionHandleColor: accent,
     ),
     inputDecorationTheme: InputDecorationTheme(
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      filled: true,
+      fillColor: dark ? const Color(0xFF18181B) : Colors.white,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: dark ? const Color(0xFF3F3F46) : line)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: dark ? const Color(0xFF3F3F46) : line)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: accent, width: 1.4)),
     ),
   );
 }

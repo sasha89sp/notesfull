@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'ctx_menu.dart';
 import 'editor.dart';
+import 'event_screen.dart';
 import 'models.dart';
 import 'note_actions.dart';
 import 'panes.dart';
@@ -248,6 +249,66 @@ class _DesktopNotesState extends State<DesktopNotes> {
     ]);
   }
 
+
+  // Правая панель расписания: показывает реальные события календаря на выбранный день.
+  Future<void> _openEvent(CalEvent e, {bool isNew = false}) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => EventScreen(store: s, event: e, isNew: isNew)));
+    if (mounted) setState(() {});
+  }
+
+  Widget _agenda() {
+    final now = DateTime.now();
+    final day = DateTime(now.year, now.month, now.day);
+    final events = s.events.where((e) => !e.deleted &&
+        e.startDt.year == day.year && e.startDt.month == day.month && e.startDt.day == day.day).toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final muted = dark ? const Color(0xFFA1A1AA) : const Color(0xFF71717A);
+    final colors = [const Color(0xFF059669), const Color(0xFF2563EB), const Color(0xFFD97706), const Color(0xFF7C3AED)];
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
+        child: Row(children: [
+          Expanded(child: Text('СЕГОДНЯ · ${day.day} ${kMonths[day.month - 1]}',
+              style: TextStyle(fontSize: 10.5, letterSpacing: .7, fontWeight: FontWeight.w700, color: muted))),
+          IconButton(tooltip: 'Новое событие', visualDensity: VisualDensity.compact,
+            onPressed: () => _openEvent(CalEvent.create(DateTime.now()), isNew: true),
+            icon: const Icon(Icons.add, size: 18)),
+        ]),
+      ),
+      Expanded(child: events.isEmpty
+        ? Center(child: Padding(padding: const EdgeInsets.all(18), child: Text('На сегодня событий нет', textAlign: TextAlign.center, style: TextStyle(color: muted, fontSize: 12))))
+        : ListView(padding: const EdgeInsets.fromLTRB(10, 0, 10, 18), children: [
+            for (var i = 0; i < events.length; i++) ...[
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                SizedBox(width: 43, child: Padding(padding: const EdgeInsets.only(top: 9), child: Text(fmtTime(events[i].startDt), style: TextStyle(fontSize: 10.5, color: muted)))),
+                Expanded(child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _openEvent(events[i]),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: colors[i % colors.length].withOpacity(dark ? .18 : .12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border(left: BorderSide(color: colors[i % colors.length], width: 3)),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(events[i].title.isEmpty ? 'Без названия' : events[i].title,
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: dark ? const Color(0xFFFAFAFA) : const Color(0xFF1E293B))),
+                      const SizedBox(height: 4),
+                      Text(events[i].allDay ? 'Весь день' : '${fmtTime(events[i].startDt)} – ${fmtTime(events[i].endDt)}',
+                        style: TextStyle(fontSize: 10.5, color: muted)),
+                    ]),
+                  ),
+                )),
+              ]),
+            ],
+          ])),
+    ]);
+  }
+
   // ------------------------------------------------------------ блок 3
 
   Widget _detail() {
@@ -290,6 +351,7 @@ class _DesktopNotesState extends State<DesktopNotes> {
             'side': PaneSpec('Блокноты', _side()),
             'list': PaneSpec('Заметки', _list()),
             'detail': PaneSpec('Редактор', _detail()),
+            'agenda': PaneSpec('Расписание', _agenda()),
           }),
         ),
       ),

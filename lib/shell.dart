@@ -350,8 +350,12 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     Widget item(IconData icon, String label, VoidCallback f, {bool sel = false}) => InkWell(
           onTap: f,
           child: Container(
-            color: sel ? cs.primary.withOpacity(0.14) : null,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: sel ? cs.primary.withOpacity(0.12) : null,
+              borderRadius: BorderRadius.circular(7),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             child: Row(children: [
               Icon(icon, size: 18, color: sel ? cs.primary : null),
               const SizedBox(width: 10),
@@ -364,12 +368,12 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           ),
         );
     return SizedBox(
-      width: 168,
+      width: 224,
       child: Container(
-        color: dark ? const Color(0xFF1C1C1E) : const Color(0xFFF7F7FA),
+        color: dark ? const Color(0xFF18181B) : const Color(0xFFF4F4F5),
         child: Column(children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            padding: const EdgeInsets.fromLTRB(16, 16, 12, 12),
             child: Row(children: [
               Avatar(s.author, s.settings.color, radius: 13),
               const SizedBox(width: 8),

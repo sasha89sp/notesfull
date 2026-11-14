@@ -32,7 +32,7 @@ class _ThreePaneState extends State<ThreePane> {
     return o;
   }
 
-  double _w(String k) => (s.settings.paneW[k] ?? (k == 'side' ? 230 : 330)).clamp(150.0, 700.0);
+  double _w(String k) => (s.settings.paneW[k] ?? (k == 'side' ? 230 : k == 'list' ? 290 : k == 'agenda' ? 280 : 330)).clamp(150.0, 700.0);
 
   void _move(String k, int d) {
     final o = _order;
