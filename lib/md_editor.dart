@@ -232,7 +232,7 @@ class _MdTextBlockState extends State<MdTextBlock> {
         Container(
           margin: const EdgeInsets.only(bottom: 4),
           decoration: BoxDecoration(
-            color: dark ? const Color(0xFF27272A) : const Color(0xFFF4F4F5),
+            color: dark ? const Color(0xFF2C2C2E) : const Color(0xFFF2F2F7),
             borderRadius: BorderRadius.circular(8),
           ),
           child: _toolbar(),

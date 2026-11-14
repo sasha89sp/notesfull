@@ -28,10 +28,8 @@ class TransferScreen extends StatelessWidget {
           final sec = Pal.secondary(context);
           return Column(children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: AppCard(
-                padding: const EdgeInsets.all(16),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(store.syncing ? store.progressText : 'Синхронизация не выполняется',
                     style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
@@ -44,7 +42,6 @@ class TransferScreen extends StatelessWidget {
                 Text('Всего: получено ${Net.fmtSize(Net.down)}, отправлено ${Net.fmtSize(Net.up)}',
                     style: TextStyle(color: sec, fontSize: 12)),
               ]),
-              ),
             ),
             const Divider(height: 1),
             Expanded(

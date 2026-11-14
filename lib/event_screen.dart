@@ -141,14 +141,8 @@ class _EventScreenState extends State<EventScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+        padding: const EdgeInsets.all(16),
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
           TextField(
             controller: _title,
             autofocus: widget.isNew,
@@ -197,10 +191,6 @@ class _EventScreenState extends State<EventScreen> {
               child: Text('Синхронизировано с Google Календарём',
                   style: TextStyle(color: Pal.secondary(context), fontSize: 12)),
             ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );

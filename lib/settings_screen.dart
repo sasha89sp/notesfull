@@ -11,6 +11,7 @@ import 'backup.dart';
 import 'bg_sync.dart';
 import 'diag_screens.dart';
 import 'gdrive.dart';
+import 'import_formats.dart';
 import 'google.dart';
 import 'ics.dart';
 import 'local_tx.dart';
@@ -22,7 +23,7 @@ import 'util.dart';
 import 'widgets.dart';
 
 const List<int> kProfileColors = [
-  0xFF4F46E5, 0xFFD97706, 0xFF059669, 0xFF2563EB, 0xFF9333EA, 0xFFDB2777, 0xFF0891B2,
+  0xFF007AFF, 0xFFFF3B30, 0xFFFF9500, 0xFF34C759, 0xFF5856D6, 0xFFAF52DE, 0xFF00C7BE,
 ];
 
 class SettingsScreen extends StatefulWidget {
@@ -167,7 +168,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _syncSig = sig;
     s.refresh();
     // ввели или изменили данные WebDAV: синхронизация запускается автоматически
-    if (changed && st.syncConfigured && st.syncMode != 'manual') s.syncAll(automatic: true);
+    if (changed && st.syncConfigured) s.syncAll();
   }
 
   Widget _field(String key, String label,
@@ -617,19 +618,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ]),
-          _drop('Режим синхронизации', st.syncMode,
-              const {'manual': 'Только вручную', '5min': 'Автоматически каждые 5 минут'},
-              (v) { st.syncMode = v; s.refresh(); _auto(); }),
-          const Padding(
-            padding: EdgeInsets.only(left: 16, bottom: 8),
-            child: Text('Заметки — вручную или каждые 5 минут. Календарь при автоматическом режиме — не чаще одного раза в сутки.', style: TextStyle(fontSize: 12, color: Colors.grey)),
-          ),
           if (BgSync.available)
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Фоновая синхронизация'),
               subtitle: const Text(
-                  'В фоне Android запускает задачу с системным интервалом (обычно от 15 минут), даже когда приложение закрыто. Нужен вход по биометрии '
+                  'Раз в ~30 минут, даже когда приложение закрыто. Нужен вход по биометрии '
                   '(ключ хранится в защищённом хранилище телефона). На Motorola и других '
                   'китайских прошивках разрешите автозапуск и снимите ограничение батареи.',
                   style: TextStyle(fontSize: 12)),
@@ -721,6 +715,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _drop('Вложения (фото, голос, файлы)', st.attMode,
               const {'wifi': 'Только Wi-Fi', 'any': 'Любая сеть', 'off': 'Не синхронизировать'},
               (v) => st.attMode = v),
+
+          const SectionTitle('Когда синхронизировать'),
+          const Hint('Чтобы приложение не делало лишних обращений к серверу и не подвисало. '
+              'Кнопкой синхронизации можно запустить обмен в любой момент.'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('При запуске приложения'),
+            value: st.syncOnStart,
+            onChanged: (v) => setState(() {
+              st.syncOnStart = v;
+              _auto();
+            }),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('После правок'),
+            subtitle: const Text('Через 5 секунд после изменения заметки, события или пароля',
+                style: TextStyle(fontSize: 12)),
+            value: st.syncOnChange,
+            onChanged: (v) => setState(() {
+              st.syncOnChange = v;
+              _auto();
+            }),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('При возврате в приложение'),
+            value: st.syncOnResume,
+            onChanged: (v) => setState(() {
+              st.syncOnResume = v;
+              _auto();
+            }),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('При появлении сети'),
+            value: st.syncOnNet,
+            onChanged: (v) => setState(() {
+              st.syncOnNet = v;
+              _auto();
+            }),
+          ),
+          _drop('Периодически', '${st.syncEvery}',
+              const {'0': 'Выключено', '15': 'Каждые 15 минут', '30': 'Каждые 30 минут', '60': 'Каждый час', '180': 'Каждые 3 часа'},
+              (v) {
+            st.syncEvery = int.tryParse(v) ?? 0;
+            _auto();
+          }),
+          _drop('Google Календарь', '${st.gcalEvery}',
+              const {'0': 'Только вручную', '30': 'Каждые 30 минут', '60': 'Каждый час', '120': 'Каждые 2 часа', '360': 'Каждые 6 часов'},
+              (v) {
+            st.gcalEvery = int.tryParse(v) ?? 0;
+            _auto();
+          }),
+          const Hint('Google Календарь загружается целиком, поэтому по расписанию он обновляется редко; '
+              'после правки события в приложении он обновится сразу. '
+              'Если ничего не изменилось, файлы на устройстве не перезаписываются.'),
 
           const SectionTitle('Модули'),
           const Hint('Отключённый модуль не загружается и не нагружает приложение. '
@@ -886,6 +937,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: () => _upload(null), child: const Text('Бэкап на сервер сейчас')),
             OutlinedButton(onPressed: _remoteBackups, child: const Text('Бэкапы на сервере')),
             OutlinedButton(onPressed: _jexImport, child: const Text('Импорт из Joplin')),
+            OutlinedButton(onPressed: () => Importer.pick(context, s), child: const Text('Импорт заметок (все форматы)')),
             OutlinedButton(onPressed: _jexExport, child: const Text('Экспорт в Joplin')),
             OutlinedButton(onPressed: _mdExport, child: const Text('Экспорт в Markdown')),
             OutlinedButton(onPressed: _pdfExport, child: const Text('Экспорт всех заметок в PDF')),

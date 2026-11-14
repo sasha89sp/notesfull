@@ -263,10 +263,7 @@ class _LockScreenState extends State<LockScreen> {
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 400),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
+            child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -366,8 +363,6 @@ class _LockScreenState extends State<LockScreen> {
                     child: const Text('Сменить профиль'),
                   ),
               ],
-            ),
-              ),
             ),
           ),
         ),

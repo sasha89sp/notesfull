@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'backup.dart';
+import 'app_menu.dart';
 import 'backup_page.dart';
 import 'bg_sync.dart';
 import 'calendar_page.dart';
@@ -49,6 +50,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   int _folderSeq = 0;
   Timer? _timer;
   Timer? _tick;
+  Timer? _sched;
+  final int _started = nowMs();
   StreamSubscription<List<ConnectivityResult>>? _conn;
 
   Store get s => widget.store;
@@ -57,21 +60,27 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (s.settings.syncMode != 'manual') s.syncAll(automatic: true);
+    if (s.settings.syncOnStart) s.syncAll(auto: true);
     s.warmSearch();
     if (BgSync.available) BgSync.apply(s.settings.bgSync);
     Backup.autoIfDue(s);
     PhoneData.autoIfDue(s);
-    _timer = Timer.periodic(const Duration(minutes: 5), (_) {
-      if (s.settings.syncMode != 'manual') s.syncAll(automatic: true);
+    _timer = Timer.periodic(const Duration(minutes: 30), (_) {
       Backup.autoIfDue(s);
       PhoneData.autoIfDue(s);
+    });
+    // периодическая синхронизация по настройке «Синхронизация → Периодически»
+    _sched = Timer.periodic(const Duration(minutes: 1), (_) {
+      final m = s.settings.syncEvery;
+      if (m <= 0 || s.syncing) return;
+      final last = s.lastRunMs > _started ? s.lastRunMs : _started;
+      if (nowMs() - last >= Duration(minutes: m).inMilliseconds) s.syncAll(auto: true);
     });
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (s.syncing && mounted) setState(() {});
     });
     _conn = Connectivity().onConnectivityChanged.listen((r) {
-      if (!r.contains(ConnectivityResult.none)) s.schedSync();
+      if (s.settings.syncOnNet && !r.contains(ConnectivityResult.none)) s.syncAll(auto: true);
     });
     if (Platform.isAndroid && !s.settings.wizardDone) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -85,6 +94,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _tick?.cancel();
+    _sched?.cancel();
     _conn?.cancel();
     super.dispose();
   }
@@ -96,7 +106,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         !s.moduleLocked(_tab)) {
       s.moduleTouch(_tab);
     }
-    if (state == AppLifecycleState.resumed && s.settings.syncMode != 'manual') s.syncAll(automatic: true);
+    if (state == AppLifecycleState.resumed && s.settings.syncOnResume) s.syncAll(auto: true);
   }
 
   bool _on(String m) => s.settings.moduleOn(m);
@@ -211,7 +221,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   Widget _section(String t) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
         child: Text(t,
-            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: .7, color: Pal.secondary(context))),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
       );
 
   Widget _drawer() {
@@ -328,6 +338,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                   builder: (_) => TrashScreen(store: s)));
             }),
           _drawerItem(Icons.settings_outlined, 'Настройки', _openSettings),
+          _drawerItem(Icons.desktop_windows_outlined, 'Вид: компьютер', () {
+            s.settings.uiMode = 'desktop';
+            s.saveSettings();
+            s.refresh();
+          }),
           ListTile(
             leading: Icon(dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
             title: Text(dark ? 'Светлая тема' : 'Тёмная тема'),
@@ -366,7 +381,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     return SizedBox(
       width: 168,
       child: Container(
-        color: dark ? const Color(0xFF111113) : const Color(0xFFF4F4F5),
+        color: dark ? const Color(0xFF1C1C1E) : const Color(0xFFF7F7FA),
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
@@ -576,10 +591,41 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             }
             if (desk) {
               return Scaffold(
-                body: Row(children: [
-                  _rail(),
-                  const VerticalDivider(width: 1),
-                  Expanded(child: _body()),
+                body: Column(children: [
+                  AppMenu(
+                    s: s,
+                    mods: _mods.where((m) => !(m == 'home' && _on('notes'))).toList(),
+                    names: _names,
+                    h: MenuHandlers(
+                      go: _go,
+                      newNote: _newNote,
+                      newEvent: _newEvent,
+                      newTask: () => _newEvent(task: true),
+                      settings: _openSettings,
+                      trash: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => TrashScreen(store: s))),
+                      switchProfile: () => widget.onLogout(true),
+                      toPhoneView: () {
+                        s.settings.uiMode = 'mobile';
+                        s.saveSettings();
+                        s.refresh();
+                      },
+                      toggleTheme: () {
+                        final dark = Theme.of(context).brightness == Brightness.dark;
+                        s.settings.theme = dark ? 'light' : 'dark';
+                        s.saveSettings();
+                        widget.onTheme(s.settings.theme);
+                      },
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: Row(children: [
+                      _rail(),
+                      const VerticalDivider(width: 1),
+                      Expanded(child: _body()),
+                    ]),
+                  ),
                 ]),
               );
             }
@@ -587,7 +633,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
               appBar: AppBar(
                 title: Text(_title,
                     style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: -.2)),
+                        fontSize: 24, fontWeight: FontWeight.w700)),
                 actions: [
                   _syncButton(),
                   const SizedBox(width: 4),

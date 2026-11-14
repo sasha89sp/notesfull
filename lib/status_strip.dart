@@ -56,11 +56,10 @@ class _StatusStripState extends State<StatusStrip> {
     }
     final bottom = MediaQuery.of(context).viewPadding.bottom;
     return Material(
-      color: dark ? const Color(0xFF18181B) : const Color(0xFFF4F4F5),
+      color: dark ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7),
       child: Padding(
         padding: EdgeInsets.only(bottom: bottom),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(height: .7, color: Pal.border(context)),
           if (s.syncing)
             LinearProgressIndicator(minHeight: 2, value: s.progress),
           InkWell(

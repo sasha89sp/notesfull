@@ -543,8 +543,8 @@ class _EditorScreenState extends State<EditorScreen> {
       padding: const EdgeInsets.fromLTRB(12, 4, 4, 8),
       decoration: BoxDecoration(
         color: Pal.card(context),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Pal.border(context), width: 0.7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Pal.border(context), width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -629,9 +629,7 @@ class _EditorScreenState extends State<EditorScreen> {
           for (var i = 0; i < n.blocks.length; i++) _blockCard(i, n.blocks[i]),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, border: Border(top: BorderSide(color: Pal.border(context)))),
-        child: SafeArea(
+      bottomNavigationBar: SafeArea(
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -648,7 +646,6 @@ class _EditorScreenState extends State<EditorScreen> {
               _addBtn(Icons.code, 'Код', () => _addBlock('code')),
             ],
           ),
-        ),
         ),
       ),
     );

@@ -598,10 +598,15 @@ class Store extends ChangeNotifier {
     schedSync();
   }
 
+  bool _gcalDirty = false; // события менялись локально — Google нужно обновить
+  int _lastRun = 0;
+  int get lastRunMs => _lastRun;
+
   void eventsChanged() {
     notifyListeners();
     saveEvents();
     onEventsChanged?.call();
+    _gcalDirty = true;
     schedSync();
   }
 
@@ -778,9 +783,11 @@ class Store extends ChangeNotifier {
   }
 
   void schedSync() {
-    // Автосинхронизация выполняется единым интервалом раз в 5 минут.
-    // В ручном режиме локальные изменения не инициируют сетевые запросы.
     _debounce?.cancel();
+    if (!settings.syncOnChange) return;
+    if (settings.syncConfigured || settings.googleConfigured) {
+      _debounce = Timer(const Duration(seconds: 5), () => syncAll(auto: true));
+    }
   }
 
   // ------------------------------------------------------------ поиск
@@ -870,9 +877,20 @@ class Store extends ChangeNotifier {
     }
   }
 
-  Future<void> syncAll({bool automatic = false}) async {
+  /// Нужно ли сейчас обращаться к Google Календарю при автоматической синхронизации.
+  bool _gcalDue() {
+    if (_gcalDirty) return true;
+    final m = settings.gcalEvery;
+    return m > 0 && nowMs() - settings.gcalLast >= Duration(minutes: m).inMilliseconds;
+  }
+
+  /// [auto] — запуск по расписанию/событию (а не кнопкой): учитывает настройки
+  /// «Синхронизация» и не трогает Google Календарь, пока не подошёл срок.
+  Future<void> syncAll({bool auto = false}) async {
     if (syncing || key == null) return;
     if (!settings.syncConfigured && !settings.googleConfigured) return;
+    if (auto && nowMs() - _lastRun < 60000) return; // не чаще раза в минуту
+    _lastRun = nowMs();
     syncing = true;
     final tok = _tok = CancelToken();
     status = 'Синхронизация…';
@@ -890,8 +908,7 @@ class Store extends ChangeNotifier {
         setProgress('WebDAV: обмен данными…');
         final r = SyncStats();
         try {
-          final calendarDue = !automatic || nowMs() - settings.lastCalendarSyncAt >= 24 * 3600 * 1000;
-          await SyncService.run(this, r, tok, syncCalendar: calendarDue);
+          await SyncService.run(this, r, tok);
         } catch (e, st) {
           if (e is SyncCancelled) rethrow;
           failed = true;
@@ -902,13 +919,14 @@ class Store extends ChangeNotifier {
         }
       }
       tok.check();
-      final googleCalendarDue = !automatic || nowMs() - settings.lastCalendarSyncAt >= 24 * 3600 * 1000;
-      if (settings.googleConfigured && googleCalendarDue) {
+      if (settings.googleConfigured && (!auto || _gcalDue())) {
         rec.targets.add('Google Календарь');
         setProgress('Google Календарь…');
         final r = SyncStats();
         try {
           await GoogleCal.sync(this, r, tok);
+          settings.gcalLast = nowMs();
+          _gcalDirty = false;
         } catch (e, st) {
           if (e is SyncCancelled) rethrow;
           failed = true;
@@ -917,13 +935,6 @@ class Store extends ChangeNotifier {
         } finally {
           all.merge(r);
         }
-      }
-      if (automatic && settings.lastCalendarSyncAt == 0 || automatic && nowMs() - settings.lastCalendarSyncAt >= 24 * 3600 * 1000) {
-        if (settings.syncConfigured || settings.googleConfigured) {
-        }
-      } else if (!automatic && (settings.syncConfigured || settings.googleConfigured)) {
-        settings.lastCalendarSyncAt = nowMs();
-        await saveSettings(touch: false);
       }
     } on SyncCancelled {
       rec.status = 'cancelled';
@@ -954,8 +965,15 @@ class Store extends ChangeNotifier {
     progressText = '';
     progress = null;
     status = '${rec.when}: ${rec.statusText}';
-    await save();
-    await addHistory(rec);
+    final nothing = all.upTotal + all.downTotal + all.conflicts == 0 && !failed;
+    if (nothing) {
+      // ничего не изменилось: не перешифровываем и не пишем все файлы заново
+      await saveSettings(touch: false);
+      if (!auto) await addHistory(rec);
+    } else {
+      await save();
+      await addHistory(rec);
+    }
     if (all.up.containsKey('events') || all.down.containsKey('events')) {
       onEventsChanged?.call();
     }

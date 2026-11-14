@@ -19,7 +19,7 @@ void bgDispatcher() {
       if (s.curId.isEmpty || !await s.unlockSilent()) return true; // ключей нет — тихо выходим
       if (!s.settings.bgSync) return true;
       if (!s.settings.syncConfigured && !s.settings.googleConfigured) return true;
-      await s.syncAll(automatic: true);
+      await s.syncAll(auto: true);
       await Backup.autoIfDue(s);
       await PhoneData.autoIfDue(s);
       return true;

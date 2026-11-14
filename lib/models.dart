@@ -855,9 +855,14 @@ class Settings {
   bool bkAuto; // после создания бэкапа загружать его на сервер
   bool bkDaily; // делать бэкап сам раз в сутки
   int bkKeep; // сколько последних копий хранить
+  bool syncOnStart; // синхронизировать при запуске
+  bool syncOnResume; // при возврате в приложение
+  bool syncOnNet; // при появлении сети
+  bool syncOnChange; // через 5 с после правок
+  int syncEvery; // периодически, минуты (0 — выключено)
+  int gcalEvery; // Google Календарь по расписанию, минуты (0 — только вручную)
+  int gcalLast; // когда Google Календарь синхронизировался в последний раз
   bool bgSync; // фоновая синхронизация Android (WorkManager)
-  String syncMode; // manual | 5min
-  int lastCalendarSyncAt; // последняя успешная синхронизация календаря
   int bkPhoneEvery; // расписание бэкапа телефона: часы (0 — выключено)
   int bkPhoneLast; // когда делался последний бэкап телефона
   int bkLast;
@@ -919,8 +924,13 @@ class Settings {
     this.bkKeep = 7,
     this.bkPhoneEvery = 0,
     this.bgSync = false,
-    this.syncMode = '5min',
-    this.lastCalendarSyncAt = 0,
+    this.syncOnStart = true,
+    this.syncOnResume = false,
+    this.syncOnNet = false,
+    this.syncOnChange = true,
+    this.syncEvery = 30,
+    this.gcalEvery = 120,
+    this.gcalLast = 0,
     this.bkPhoneLast = 0,
     this.bkLast = 0,
     this.settingsUpdatedAt = 0,
@@ -990,8 +1000,13 @@ class Settings {
         'bkKeep': bkKeep,
         'bkPhoneEvery': bkPhoneEvery,
         'bgSync': bgSync,
-        'syncMode': syncMode,
-        'lastCalendarSyncAt': lastCalendarSyncAt,
+        'syncOnStart': syncOnStart,
+        'syncOnResume': syncOnResume,
+        'syncOnNet': syncOnNet,
+        'syncOnChange': syncOnChange,
+        'syncEvery': syncEvery,
+        'gcalEvery': gcalEvery,
+        'gcalLast': gcalLast,
         'bkPhoneLast': bkPhoneLast,
         'bkLast': bkLast,
         'settingsUpdatedAt': settingsUpdatedAt,
@@ -1050,8 +1065,13 @@ class Settings {
       bkKeep: (j['bkKeep'] ?? 7) as int,
       bkPhoneEvery: (j['bkPhoneEvery'] ?? 0) as int,
       bgSync: (j['bgSync'] ?? false) as bool,
-      syncMode: (j['syncMode'] ?? '5min') as String,
-      lastCalendarSyncAt: (j['lastCalendarSyncAt'] ?? 0) as int,
+      syncOnStart: (j['syncOnStart'] ?? true) as bool,
+      syncOnResume: (j['syncOnResume'] ?? false) as bool,
+      syncOnNet: (j['syncOnNet'] ?? false) as bool,
+      syncOnChange: (j['syncOnChange'] ?? true) as bool,
+      syncEvery: (j['syncEvery'] ?? 30) as int,
+      gcalEvery: (j['gcalEvery'] ?? 120) as int,
+      gcalLast: (j['gcalLast'] ?? 0) as int,
       bkPhoneLast: (j['bkPhoneLast'] ?? 0) as int,
       bkLast: (j['bkLast'] ?? 0) as int,
       groups: ((j['groups'] ?? []) as List)

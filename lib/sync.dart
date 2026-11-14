@@ -39,7 +39,7 @@ class SyncService {
     return Dav(st.url, st.user, st.pass);
   }
 
-  static Future<void> run(Store s, SyncStats r, CancelToken tok, {bool syncCalendar = true}) async {
+  static Future<void> run(Store s, SyncStats r, CancelToken tok) async {
     final st = s.settings;
     final dav = remoteOf(st);
     await dav.mkcolAll(root);
@@ -53,19 +53,19 @@ class SyncService {
     await _scope(dav, s, 'personal', personalDir, s.syncKey!, null, r, tok);
     tok.check();
 
-    // Календарь синхронизируется отдельным суточным циклом; ручной запуск всегда включает его.
-    if (syncCalendar) {
-      await _mergeBlob(
-        dav,
-        '$personalDir/events.enc',
-        s.syncKey!,
-        s.events.map((e) => e.toJson()).toList(),
-        (list) { s.events = list.map(CalEvent.fromJson).toList(); },
-        r,
-        'events',
-      );
-      tok.check();
-    }
+    // 2. События календаря (личные)
+    await _mergeBlob(
+      dav,
+      '$personalDir/events.enc',
+      s.syncKey!,
+      s.events.map((e) => e.toJson()).toList(),
+      (list) {
+        s.events = list.map(CalEvent.fromJson).toList();
+      },
+      r,
+      'events',
+    );
+    tok.check();
 
     // 2б. Папки заметок
     await _mergeBlob(

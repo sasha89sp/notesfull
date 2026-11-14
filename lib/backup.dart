@@ -94,7 +94,7 @@ class Backup {
     final p = n.split('_');
     if (p.length < 3) return n;
     final d = p[0], t = p[1];
-    final why = {'reset': 'перед сбросом', 'restore': 'перед восстановлением', 'joplin': 'перед импортом Joplin'}[p[2]] ?? p[2];
+    final why = {'reset': 'перед сбросом', 'restore': 'перед восстановлением', 'joplin': 'перед импортом Joplin', 'import': 'перед импортом'}[p[2]] ?? p[2];
     if (d.length != 8 || t.length != 6) return n;
     return '${d.substring(6)}.${d.substring(4, 6)}.${d.substring(0, 4)} ${t.substring(0, 2)}:${t.substring(2, 4)} · $why';
   }
