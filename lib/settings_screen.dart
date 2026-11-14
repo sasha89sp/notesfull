@@ -22,7 +22,7 @@ import 'util.dart';
 import 'widgets.dart';
 
 const List<int> kProfileColors = [
-  0xFF007AFF, 0xFFFF3B30, 0xFFFF9500, 0xFF34C759, 0xFF5856D6, 0xFFAF52DE, 0xFF00C7BE,
+  0xFF4F46E5, 0xFFD97706, 0xFF059669, 0xFF2563EB, 0xFF9333EA, 0xFFDB2777, 0xFF0891B2,
 ];
 
 class SettingsScreen extends StatefulWidget {
@@ -167,7 +167,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _syncSig = sig;
     s.refresh();
     // ввели или изменили данные WebDAV: синхронизация запускается автоматически
-    if (changed && st.syncConfigured) s.syncAll();
+    if (changed && st.syncConfigured && st.syncMode != 'manual') s.syncAll(automatic: true);
   }
 
   Widget _field(String key, String label,
@@ -617,12 +617,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ]),
+          _drop('Режим синхронизации', st.syncMode,
+              const {'manual': 'Только вручную', '5min': 'Автоматически каждые 5 минут'},
+              (v) { st.syncMode = v; s.refresh(); _auto(); }),
+          const Padding(
+            padding: EdgeInsets.only(left: 16, bottom: 8),
+            child: Text('Заметки — вручную или каждые 5 минут. Календарь при автоматическом режиме — не чаще одного раза в сутки.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          ),
           if (BgSync.available)
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Фоновая синхронизация'),
               subtitle: const Text(
-                  'Раз в ~30 минут, даже когда приложение закрыто. Нужен вход по биометрии '
+                  'В фоне Android запускает задачу с системным интервалом (обычно от 15 минут), даже когда приложение закрыто. Нужен вход по биометрии '
                   '(ключ хранится в защищённом хранилище телефона). На Motorola и других '
                   'китайских прошивках разрешите автозапуск и снимите ограничение батареи.',
                   style: TextStyle(fontSize: 12)),

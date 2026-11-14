@@ -547,7 +547,7 @@ class _PassPageState extends State<PassPage> {
                           ),
                           if (e.favorite)
                             const Icon(Icons.star,
-                                size: 16, color: Color(0xFFFF9500)),
+                                size: 16, color: Color(0xFFD97706)),
                           IconButton(
                             tooltip: 'Копировать пароль',
                             icon: const Icon(Icons.copy, size: 18),
@@ -780,7 +780,7 @@ class _PassPageState extends State<PassPage> {
                                 style: TextStyle(color: sec, fontSize: 11)),
                           ]),
                         ),
-                        if (e.favorite) const Icon(Icons.star, size: 12, color: Color(0xFFFF9500)),
+                        if (e.favorite) const Icon(Icons.star, size: 12, color: Color(0xFFD97706)),
                       ]),
                     ),
                   );

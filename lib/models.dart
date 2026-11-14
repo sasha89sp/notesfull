@@ -840,7 +840,7 @@ class Settings {
   String grpFolder;
   Map<String, bool> modules; // notes, shared, calendar, pass, backup
   String uiMode; // auto | desktop | mobile
-  List<String> paneOrder; // порядок блоков десктопного вида: side, list, detail, agenda
+  List<String> paneOrder; // порядок блоков десктопного вида: side, list, detail
   Map<String, double> paneW; // ширины боковых блоков
   double fontScale; // масштаб шрифта интерфейса (0.8–1.6)
   Map<String, int> modLock; // блокировка модуля биометрией: секунды бездействия (0 — при каждом входе)
@@ -856,6 +856,8 @@ class Settings {
   bool bkDaily; // делать бэкап сам раз в сутки
   int bkKeep; // сколько последних копий хранить
   bool bgSync; // фоновая синхронизация Android (WorkManager)
+  String syncMode; // manual | 5min
+  int lastCalendarSyncAt; // последняя успешная синхронизация календаря
   int bkPhoneEvery; // расписание бэкапа телефона: часы (0 — выключено)
   int bkPhoneLast; // когда делался последний бэкап телефона
   int bkLast;
@@ -917,6 +919,8 @@ class Settings {
     this.bkKeep = 7,
     this.bkPhoneEvery = 0,
     this.bgSync = false,
+    this.syncMode = '5min',
+    this.lastCalendarSyncAt = 0,
     this.bkPhoneLast = 0,
     this.bkLast = 0,
     this.settingsUpdatedAt = 0,
@@ -986,6 +990,8 @@ class Settings {
         'bkKeep': bkKeep,
         'bkPhoneEvery': bkPhoneEvery,
         'bgSync': bgSync,
+        'syncMode': syncMode,
+        'lastCalendarSyncAt': lastCalendarSyncAt,
         'bkPhoneLast': bkPhoneLast,
         'bkLast': bkLast,
         'settingsUpdatedAt': settingsUpdatedAt,
@@ -1044,6 +1050,8 @@ class Settings {
       bkKeep: (j['bkKeep'] ?? 7) as int,
       bkPhoneEvery: (j['bkPhoneEvery'] ?? 0) as int,
       bgSync: (j['bgSync'] ?? false) as bool,
+      syncMode: (j['syncMode'] ?? '5min') as String,
+      lastCalendarSyncAt: (j['lastCalendarSyncAt'] ?? 0) as int,
       bkPhoneLast: (j['bkPhoneLast'] ?? 0) as int,
       bkLast: (j['bkLast'] ?? 0) as int,
       groups: ((j['groups'] ?? []) as List)

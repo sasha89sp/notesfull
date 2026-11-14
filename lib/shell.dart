@@ -57,13 +57,13 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    s.syncAll();
+    if (s.settings.syncMode != 'manual') s.syncAll(automatic: true);
     s.warmSearch();
     if (BgSync.available) BgSync.apply(s.settings.bgSync);
     Backup.autoIfDue(s);
     PhoneData.autoIfDue(s);
-    _timer = Timer.periodic(const Duration(minutes: 30), (_) {
-      s.syncAll();
+    _timer = Timer.periodic(const Duration(minutes: 5), (_) {
+      if (s.settings.syncMode != 'manual') s.syncAll(automatic: true);
       Backup.autoIfDue(s);
       PhoneData.autoIfDue(s);
     });
@@ -96,7 +96,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         !s.moduleLocked(_tab)) {
       s.moduleTouch(_tab);
     }
-    if (state == AppLifecycleState.resumed) s.syncAll();
+    if (state == AppLifecycleState.resumed && s.settings.syncMode != 'manual') s.syncAll(automatic: true);
   }
 
   bool _on(String m) => s.settings.moduleOn(m);
@@ -211,7 +211,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   Widget _section(String t) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
         child: Text(t,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: .7, color: Pal.secondary(context))),
       );
 
   Widget _drawer() {
@@ -350,12 +350,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     Widget item(IconData icon, String label, VoidCallback f, {bool sel = false}) => InkWell(
           onTap: f,
           child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: sel ? cs.primary.withOpacity(0.12) : null,
-              borderRadius: BorderRadius.circular(7),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            color: sel ? cs.primary.withOpacity(0.14) : null,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(children: [
               Icon(icon, size: 18, color: sel ? cs.primary : null),
               const SizedBox(width: 10),
@@ -368,12 +364,12 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           ),
         );
     return SizedBox(
-      width: 224,
+      width: 168,
       child: Container(
-        color: dark ? const Color(0xFF18181B) : const Color(0xFFF4F4F5),
+        color: dark ? const Color(0xFF111113) : const Color(0xFFF4F4F5),
         child: Column(children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 12, 12),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
             child: Row(children: [
               Avatar(s.author, s.settings.color, radius: 13),
               const SizedBox(width: 8),
@@ -591,7 +587,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
               appBar: AppBar(
                 title: Text(_title,
                     style: const TextStyle(
-                        fontSize: 24, fontWeight: FontWeight.w700)),
+                        fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: -.2)),
                 actions: [
                   _syncButton(),
                   const SizedBox(width: 4),

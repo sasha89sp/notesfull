@@ -78,7 +78,9 @@ class _TrashScreenState extends State<TrashScreen> {
                     style: TextStyle(color: Pal.secondary(context))),
               ),
               for (final n in l)
-                ListTile(
+                AppCard(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: ListTile(
                   title: Text(n.title.isEmpty ? 'Без названия' : n.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text('${n.preview(60)}\nУдалена ${fmtDate(n.updatedAt)} · осталось дней: ${_daysLeft(n)}',
                       maxLines: 3, overflow: TextOverflow.ellipsis),
@@ -87,7 +89,7 @@ class _TrashScreenState extends State<TrashScreen> {
                     IconButton(tooltip: 'Восстановить', onPressed: () => _restore(n), icon: const Icon(Icons.restore)),
                     IconButton(tooltip: 'Удалить навсегда', onPressed: () => _purge(n), icon: const Icon(Icons.delete_forever_outlined)),
                   ]),
-                ),
+                )),
             ]),
     );
   }

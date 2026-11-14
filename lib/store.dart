@@ -778,10 +778,9 @@ class Store extends ChangeNotifier {
   }
 
   void schedSync() {
+    // Автосинхронизация выполняется единым интервалом раз в 5 минут.
+    // В ручном режиме локальные изменения не инициируют сетевые запросы.
     _debounce?.cancel();
-    if (settings.syncConfigured || settings.googleConfigured) {
-      _debounce = Timer(const Duration(seconds: 5), () => syncAll());
-    }
   }
 
   // ------------------------------------------------------------ поиск
@@ -871,7 +870,7 @@ class Store extends ChangeNotifier {
     }
   }
 
-  Future<void> syncAll() async {
+  Future<void> syncAll({bool automatic = false}) async {
     if (syncing || key == null) return;
     if (!settings.syncConfigured && !settings.googleConfigured) return;
     syncing = true;
@@ -891,7 +890,8 @@ class Store extends ChangeNotifier {
         setProgress('WebDAV: обмен данными…');
         final r = SyncStats();
         try {
-          await SyncService.run(this, r, tok);
+          final calendarDue = !automatic || nowMs() - settings.lastCalendarSyncAt >= 24 * 3600 * 1000;
+          await SyncService.run(this, r, tok, syncCalendar: calendarDue);
         } catch (e, st) {
           if (e is SyncCancelled) rethrow;
           failed = true;
@@ -902,7 +902,8 @@ class Store extends ChangeNotifier {
         }
       }
       tok.check();
-      if (settings.googleConfigured) {
+      final googleCalendarDue = !automatic || nowMs() - settings.lastCalendarSyncAt >= 24 * 3600 * 1000;
+      if (settings.googleConfigured && googleCalendarDue) {
         rec.targets.add('Google Календарь');
         setProgress('Google Календарь…');
         final r = SyncStats();
@@ -916,6 +917,13 @@ class Store extends ChangeNotifier {
         } finally {
           all.merge(r);
         }
+      }
+      if (automatic && settings.lastCalendarSyncAt == 0 || automatic && nowMs() - settings.lastCalendarSyncAt >= 24 * 3600 * 1000) {
+        if (settings.syncConfigured || settings.googleConfigured) {
+        }
+      } else if (!automatic && (settings.syncConfigured || settings.googleConfigured)) {
+        settings.lastCalendarSyncAt = nowMs();
+        await saveSettings(touch: false);
       }
     } on SyncCancelled {
       rec.status = 'cancelled';

@@ -361,7 +361,7 @@ class _NotesListState extends State<NotesList> {
             if (n.favorite)
               const Padding(
                 padding: EdgeInsets.only(right: 4),
-                child: Icon(Icons.star, size: 16, color: Color(0xFFFF9500)),
+                child: Icon(Icons.star, size: 16, color: Color(0xFFD97706)),
               ),
             Icon(
               n.isGroup ? Icons.group_outlined : Icons.lock_outline,

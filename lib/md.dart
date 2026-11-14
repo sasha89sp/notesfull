@@ -424,7 +424,7 @@ class _MdDocState extends State<MdDoc> {
         padding: const EdgeInsets.all(10),
         width: double.infinity,
         decoration: BoxDecoration(
-          color: Pal.dark(context) ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7),
+          color: Pal.dark(context) ? const Color(0xFF27272A) : const Color(0xFFF4F4F5),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Pal.border(context), width: 0.5),
         ),

@@ -3,22 +3,22 @@ import 'package:flutter/material.dart';
 class Pal {
   static bool dark(BuildContext c) => Theme.of(c).brightness == Brightness.dark;
   static Color border(BuildContext c) =>
-      dark(c) ? const Color(0xFF38383A) : const Color(0xFFC6C6C8);
+      dark(c) ? const Color(0xFF27272A) : const Color(0xFFE4E4E7);
   static Color card(BuildContext c) =>
-      dark(c) ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7);
+      dark(c) ? const Color(0xFF18181B) : const Color(0xFFFFFFFF);
   static Color card3(BuildContext c) =>
-      dark(c) ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA);
-  static Color secondary(BuildContext c) => const Color(0xFF8E8E93);
+      dark(c) ? const Color(0xFF27272A) : const Color(0xFFF4F4F5);
+  static Color secondary(BuildContext c) => dark(c) ? const Color(0xFFA1A1AA) : const Color(0xFF71717A);
   static Color success(BuildContext c) =>
-      dark(c) ? const Color(0xFF30D158) : const Color(0xFF34C759);
+      dark(c) ? const Color(0xFF4ADE80) : const Color(0xFF059669);
   static Color warn(BuildContext c) =>
-      dark(c) ? const Color(0xFFFF9F0A) : const Color(0xFFFF9500);
+      dark(c) ? const Color(0xFFFBBF24) : const Color(0xFFD97706);
   static Color error(BuildContext c) =>
       dark(c) ? const Color(0xFFFF453A) : const Color(0xFFFF3B30);
 }
 
 const List<int> kTagColors = [
-  0xFFFF3B30, 0xFFFF9500, 0xFF34C759, 0xFF007AFF, 0xFF5856D6, 0xFFAF52DE, 0xFF00C7BE,
+  0xFFD97706, 0xFF4F46E5, 0xFF059669, 0xFF2563EB, 0xFF9333EA, 0xFFDB2777, 0xFF0891B2,
 ];
 
 Color tagColor(String tag) {
@@ -29,7 +29,7 @@ Color tagColor(String tag) {
   return Color(kTagColors[h % kTagColors.length]);
 }
 
-/// Карточка в стиле Apple: скругление 12, граница 0.5, без теней.
+/// Унифицированная карточка приложения в стиле NotePlan.
 class AppCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets padding;
@@ -50,16 +50,18 @@ class AppCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 5),
       decoration: BoxDecoration(
         color: Pal.card(context),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Pal.border(context), width: 0.5),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Pal.border(context), width: 0.7),
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           onTap: onTap,
           onLongPress: onLongPress,
+          hoverColor: Theme.of(context).colorScheme.primary.withOpacity(.045),
+          splashColor: Theme.of(context).colorScheme.primary.withOpacity(.08),
           child: Padding(padding: padding, child: child),
         ),
       ),
@@ -74,7 +76,7 @@ class SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.fromLTRB(2, 18, 2, 6),
         child: Text(text,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
       );
 }
 
@@ -123,10 +125,10 @@ class TagChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
-            color: c.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(12),
+            color: c.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(5),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Text('#$tag', style: TextStyle(color: c, fontSize: 13)),
