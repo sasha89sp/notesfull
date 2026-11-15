@@ -48,7 +48,7 @@ class _ChatPageState extends State<ChatPage> {
     if (_polling || s.syncing) return;
     _polling = true;
     try {
-      await SyncService.chatOnly(s, widget.group);
+      await SyncChat.chatOnly(s, widget.group);
     } catch (_) {
       // сеть недоступна — повторим при следующем опросе
     } finally {

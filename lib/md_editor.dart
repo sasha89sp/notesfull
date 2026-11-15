@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'edit_cmd.dart';
 import 'md.dart';
 import 'md_ops.dart';
 import 'media.dart';
@@ -35,6 +36,7 @@ class _MdTextBlockState extends State<MdTextBlock> {
   final FocusNode _focus = FocusNode();
   final UndoHistoryController _undo = UndoHistoryController();
   bool _editing = false;
+  late final ActiveMd _active;
   bool _busy = false; // открыт диалог: потеря фокуса не закрывает правку
 
   TextEditingController get c => widget.controller;
@@ -44,7 +46,10 @@ class _MdTextBlockState extends State<MdTextBlock> {
   void initState() {
     super.initState();
     _editing = b.content.trim().isEmpty;
+    EditCmd.init();
+    _active = ActiveMd(_op, _link, _attach, _undo.undo, _undo.redo, _find, _now);
     _focus.addListener(() {
+      if (_focus.hasFocus) EditCmd.md = _active;
       if (!_focus.hasFocus && !_busy && mounted && c.text.trim().isNotEmpty) {
         setState(() => _editing = false);
       }
@@ -53,6 +58,7 @@ class _MdTextBlockState extends State<MdTextBlock> {
 
   @override
   void dispose() {
+    if (identical(EditCmd.md, _active)) EditCmd.md = null;
     _focus.dispose();
     _undo.dispose();
     super.dispose();
@@ -67,6 +73,18 @@ class _MdTextBlockState extends State<MdTextBlock> {
   }
 
   void _op(TextEditingValue Function(TextEditingValue) f) => _apply(f(c.value));
+
+  bool _find(String q) {
+    final t = c.text.toLowerCase();
+    final from = c.selection.isValid ? c.selection.end : 0;
+    var i = t.indexOf(q.toLowerCase(), from);
+    if (i < 0) i = t.indexOf(q.toLowerCase());
+    if (i < 0) return false;
+    if (!_editing) setState(() => _editing = true);
+    c.selection = TextSelection(baseOffset: i, extentOffset: i + q.length);
+    _focus.requestFocus();
+    return true;
+  }
 
   Future<void> _link() async {
     final sel = c.selection;

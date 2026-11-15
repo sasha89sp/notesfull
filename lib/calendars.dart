@@ -124,7 +124,7 @@ class _CalendarsBoxState extends State<CalendarsBox> {
               keyboardType: TextInputType.url,
               decoration: const InputDecoration(labelText: 'Ссылка .ics или webcal://')),
           const SizedBox(height: 8),
-          const Text('Только чтение. Повторяющиеся события показываются первым вхождением.',
+          const Text('Только чтение. Повторяющиеся события раскрываются на ближайший год.',
               style: TextStyle(fontSize: 12)),
         ]),
         actions: [

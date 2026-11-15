@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'backup.dart';
 import 'diag_screens.dart';
+import 'edit_cmd.dart';
+import 'edit_menu.dart';
 import 'import_formats.dart';
 import 'models.dart';
 import 'note_actions.dart';
@@ -26,7 +28,7 @@ class MenuHandlers {
   });
 }
 
-/// Верхнее меню как в Joplin: Файл · Вид · Переход · Блокноты · Заметка · Сервис · Помощь.
+/// Верхнее меню как в Joplin: Файл · Правка · Вид · Переход · Блокноты · Заметка · Сервис · Помощь.
 class AppMenu extends StatelessWidget {
   final Store s;
   final List<String> mods;
@@ -50,9 +52,9 @@ class AppMenu extends StatelessWidget {
     try {
       final notes = s.notes.where((n) => !n.isGroup && !n.deleted).toList();
       final ok = kind == 'jex'
-          ? await saveBytes('asrbox.jex', await Jex.exportFrom(s))
+          ? await saveBytes('asrbox.jex', await JexIo.exportFrom(s))
           : kind == 'md'
-              ? await saveBytes('asrbox_markdown.zip', await Jex.exportMarkdown(s, notes))
+              ? await saveBytes('asrbox_markdown.zip', await JexIo.exportMarkdown(s, notes))
               : await saveBytes('asrbox_notes.pdf', await PdfExport.build(s, notes));
       if (ok && c.mounted) toast(c, 'Экспорт сохранён');
     } catch (e) {
@@ -107,6 +109,10 @@ class AppMenu extends StatelessWidget {
             const Divider(height: 1),
             _item('Выход', () => exit(0), key: 'Ctrl+Q'),
           ], child: const Text('Файл')),
+          EditMenu.build(context, searchAll: () {
+            h.go('notes');
+            Future<void>.delayed(const Duration(milliseconds: 150), EditCmd.searchFocus.requestFocus);
+          }),
           SubmenuButton(menuChildren: [
             _item('Вид «Телефон»', h.toPhoneView),
             _item(s.settings.showSchedule ? 'Скрыть «Расписание»' : 'Показать «Расписание»', () {

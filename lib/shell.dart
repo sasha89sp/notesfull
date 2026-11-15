@@ -27,7 +27,14 @@ import 'remote.dart';
 import 'diag_screens.dart';
 import 'trash_screen.dart';
 import 'util.dart';
+import 'voice_page.dart';
+import 'dock.dart';
+import 'win_module.dart';
 import 'widgets.dart';
+
+part 'shell_2.dart';
+part 'shell_3.dart';
+
 
 /// Главная оболочка: нижняя навигация, боковое меню (профиль, модули,
 /// «Избранное», настройки, тема), кнопка и строка статуса синхронизации сверху.
@@ -59,14 +66,13 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   final int _started = nowMs();
   StreamSubscription<List<ConnectivityResult>>? _conn;
 
-  Store get s => widget.store;
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     if (s.settings.syncOnStart) s.syncAll(auto: true);
     s.warmSearch();
+    WinService.apply(s); // переназначение клавиш и горячая клавиша диктовки (Windows)
     if (BgSync.available) BgSync.apply(s.settings.bgSync);
     Backup.autoIfDue(s);
     PhoneData.autoIfDue(s);
@@ -115,40 +121,15 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed && s.settings.syncOnResume) s.syncAll(auto: true);
   }
 
-  bool _on(String m) => s.settings.moduleOn(m);
-
-  /// Активные разделы: отключённые модули не показываются и не загружаются.
-  List<String> get _mods => [
-        'home',
-        if (_on('notes')) 'notes',
-        if (_on('shared')) 'shared',
-        if (_on('calendar')) 'calendar',
-        if (_on('pass')) 'pass',
-        if (_on('backup')) 'backup',
-      ];
-
-  /// В нижней панели — не больше пяти пунктов; «Бэкап» только в меню.
-  List<String> get _navMods => _mods.where((m) => m != 'backup').toList();
-
-  void _go(String m) => setState(() {
-        // выход из модуля с блокировкой: время бездействия считается с этого момента
-        if (_tab != m && s.settings.modLock.containsKey(_tab) && !s.moduleLocked(_tab)) {
-          s.moduleTouch(_tab);
-        }
-        _tab = m;
-        _visited.add(m);
-        if (m == 'shared' && s.settings.sharedOnOpen && s.settings.groups.isNotEmpty) {
-          s.settings.sharedLast = 0;
-          Future<void>.microtask(() => s.syncAll(auto: true));
-        }
-      });
-
   static const _icons = {
     'home': Icons.home_outlined,
     'notes': Icons.notes,
     'shared': Icons.folder_shared_outlined,
     'calendar': Icons.calendar_month_outlined,
     'pass': Icons.key_outlined,
+    'voice': Icons.mic_none,
+    'windows': Icons.keyboard_outlined,
+    'dock': Icons.dock,
     'backup': Icons.backup_outlined,
   };
   static const _names = {
@@ -157,360 +138,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     'shared': 'Общая папка',
     'calendar': 'Календарь',
     'pass': 'Пароли',
+    'voice': 'Диктовка',
+    'windows': 'Windows',
+    'dock': 'Док',
     'backup': 'Бэкап',
   };
-
-  String get _title => _names[_tab] ?? 'Главная';
-
-  void _newNote() {
-    final n = Note.create(s.author, s.profileId, 'personal');
-    s.notes.add(n);
-    Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => EditorScreen(store: s, note: n)));
-  }
-
-  void _newEvent({bool task = false}) {
-    final e = CalEvent.create(DateTime.now(), task: task);
-    Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => EventScreen(store: s, event: e, isNew: true)));
-  }
-
-  void _quickCreate() {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.note_add_outlined),
-            title: const Text('Новая заметка'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _newNote();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.event),
-            title: const Text('Новое событие'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _newEvent();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.check_circle_outline),
-            title: const Text('Новая задача'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _newEvent(task: true);
-            },
-          ),
-        ]),
-      ),
-    );
-  }
-
-  void _openSettings() {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => SettingsScreen(
-            store: s, onTheme: widget.onTheme, onLogout: widget.onLogout)));
-  }
-
-  Widget _drawerItem(IconData icon, String label, VoidCallback f,
-      {bool selected = false}) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(label),
-      selected: selected,
-      onTap: () {
-        Navigator.pop(context);
-        f();
-      },
-    );
-  }
-
-  Widget _section(String t) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-        child: Text(t,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
-      );
-
-  Widget _drawer() {
-    final tags = <String>{};
-    if (_on('notes')) {
-      for (final n in s.notes.where((n) => !n.deleted && !n.isGroup)) {
-        tags.addAll(n.tags);
-      }
-    }
-    final sortedTags = tags.toList()..sort();
-    final favFolders = _on('notes')
-        ? s.folders
-            .where((f) => !f.deleted && s.isFolderFav(f.id))
-            .toList()
-        : <NoteFolder>[];
-    final favNotes = _on('notes')
-        ? s.notes.where((n) => !n.deleted && !n.isGroup && n.favorite).toList()
-        : <Note>[];
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return Drawer(
-      child: SafeArea(
-        child: Column(children: [
-          Expanded(
-              child: ListView(padding: EdgeInsets.zero, children: [
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(children: [
-                Avatar(s.author, s.settings.color, radius: 22),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(s.author,
-                      style: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.w600)),
-                ),
-              ]),
-            ),
-            _section('МОДУЛИ'),
-            if (_on('notes'))
-              _drawerItem(Icons.notes, 'Заметки', () {
-                setState(() {
-                  _folder = '';
-                  _folderSeq++;
-                  _tag = null;
-                });
-                _go('notes');
-              }, selected: _tab == 'notes'),
-            if (_on('shared'))
-              _drawerItem(
-                  Icons.folder_shared_outlined, 'Общая папка', () => _go('shared'),
-                  selected: _tab == 'shared'),
-            if (_on('calendar'))
-              _drawerItem(Icons.calendar_month_outlined, 'Календарь',
-                  () => _go('calendar'),
-                  selected: _tab == 'calendar'),
-            if (_on('pass'))
-              _drawerItem(Icons.key_outlined, 'Пароли', () => _go('pass'),
-                  selected: _tab == 'pass'),
-            if (_on('backup'))
-              _drawerItem(Icons.backup_outlined, 'Бэкап', () => _go('backup'),
-                  selected: _tab == 'backup'),
-            if (favFolders.isNotEmpty || favNotes.isNotEmpty) ...[
-              const Divider(),
-              _section('ИЗБРАННОЕ'),
-              for (final f in favFolders)
-                ListTile(
-                  leading: const Icon(Icons.folder_outlined),
-                  title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  onTap: () {
-                    Navigator.pop(context);
-                    setState(() {
-                      _folder = f.id;
-                      _folderSeq++;
-                      _tag = null;
-                    });
-                    _go('notes');
-                  },
-                ),
-              for (final n in favNotes)
-                ListTile(
-                  leading: const Icon(Icons.star_border),
-                  title: Text(n.title.isEmpty ? 'Без названия' : n.title,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.of(context).push(MaterialPageRoute<void>(
-                        builder: (_) => EditorScreen(store: s, note: n)));
-                  },
-                ),
-            ],
-            if (sortedTags.isNotEmpty) ...[
-              const Divider(),
-              _section('ТЕГИ'),
-              for (final t in sortedTags)
-                ListTile(
-                  leading: Icon(Icons.tag, color: tagColor(t)),
-                  title: Text(t),
-                  selected: _tag == t,
-                  onTap: () {
-                    Navigator.pop(context);
-                    setState(() {
-                      _folder = '';
-                      _folderSeq++;
-                      _tag = t;
-                    });
-                    _go('notes');
-                  },
-                ),
-            ],
-          ])),
-          const Divider(height: 1),
-          if (_on('notes'))
-            _drawerItem(Icons.delete_outline, 'Корзина', () {
-              Navigator.of(context).push(MaterialPageRoute<void>(
-                  builder: (_) => TrashScreen(store: s)));
-            }),
-          _drawerItem(Icons.settings_outlined, 'Настройки', _openSettings),
-          _drawerItem(Icons.desktop_windows_outlined, 'Вид: компьютер', () {
-            s.settings.uiMode = 'desktop';
-            s.saveSettings();
-            s.refresh();
-          }),
-          ListTile(
-            leading: Icon(dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
-            title: Text(dark ? 'Светлая тема' : 'Тёмная тема'),
-            onTap: () {
-              s.settings.theme = dark ? 'light' : 'dark';
-              s.saveSettings();
-              widget.onTheme(s.settings.theme);
-            },
-          ),
-        ]),
-      ),
-    );
-  }
-
-  /// Кнопка синхронизации в правом верхнем углу: во время работы нажатие останавливает.
-  Widget _syncButton() {
-    if (s.syncing) {
-      return IconButton(
-        tooltip: 'Остановить синхронизацию',
-        onPressed: s.cancelSync,
-        icon: Stack(alignment: Alignment.center, children: [
-          SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2, value: s.progress)),
-          const Icon(Icons.stop, size: 12),
-        ]),
-      );
-    }
-    return IconButton(
-      icon: const Icon(Icons.sync),
-      tooltip: 'Синхронизировать',
-      onPressed: () {
-        if (!s.settings.syncConfigured && !s.settings.googleConfigured) {
-          _openSettings();
-        } else {
-          s.syncAll();
-        }
-      },
-    );
-  }
-
-  /// Слева от кнопки: процент и что сейчас происходит (или итог последней).
-  Widget _syncStatus() {
-    String text;
-    Color col = Pal.secondary(context);
-    if (s.syncing) {
-      final p = s.progress;
-      final pc = p == null ? '' : '${(p * 100).round()}% · ';
-      final (u, d) = Net.speed();
-      text = '$pc↓${Net.fmtSpeed(d)} ↑${Net.fmtSpeed(u)}\n${s.progressText}';
-    } else {
-      final last = s.lastSync;
-      if (last == null) return const SizedBox.shrink();
-      text = last.status == 'ok' ? 'Синхронизировано ${last.when}' : last.statusText;
-      if (last.status != 'ok' && last.status != 'cancelled') col = Pal.error(context);
-    }
-    return InkWell(
-      onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => DiagHub(store: s, tab: 0))),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 190),
-        child: Text(text,
-            maxLines: 2,
-            textAlign: TextAlign.right,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 11, height: 1.2, color: col)),
-      ),
-    );
-  }
-
-  /// Страницы строятся лениво: модуль загружается при первом открытии.
-  Widget _page(String m) {
-    if (m != _tab && !_visited.contains(m)) return const SizedBox.shrink();
-    switch (m) {
-      case 'home':
-        return _on('notes')
-            ? NotesList(
-                key: const ValueKey('home'),
-                store: s,
-                filter: 'all',
-                tag: null,
-                home: true,
-                onOpenFolder: (id) {
-                  setState(() {
-                    _folder = id;
-                    _folderSeq++;
-                  });
-                  _go('notes');
-                },
-                onClearTag: () {})
-            : _ModulesHome(mods: _mods, onOpen: _go);
-      case 'notes':
-        // десктоп с широким окном: три колонки, как в Joplin
-        if (s.useDesktop(MediaQuery.of(context).size.width)) {
-          return DesktopNotes(
-              key: ValueKey('dn$_folderSeq'),
-              store: s,
-              initial: _folder.isNotEmpty ? 'f:$_folder' : _tag != null ? 't:$_tag' : 'all');
-        }
-        return NotesList(
-            key: ValueKey('notes$_folderSeq'),
-            store: s,
-            filter: 'all',
-            tag: _tag,
-            home: false,
-            folder: _folder,
-            onClearTag: () => setState(() => _tag = null));
-      case 'shared':
-        return _gate('shared', SharedPage(store: s));
-      case 'calendar':
-        return CalendarPage(store: s);
-      case 'pass':
-        return _tab == 'pass'
-            ? _gate('pass', PassPage(store: s, pass: widget.pass, desktop: s.useDesktop(MediaQuery.of(context).size.width)))
-            : const SizedBox.shrink();
-      case 'backup':
-        return BackupPage(store: s);
-      default:
-        return const SizedBox.shrink();
-    }
-  }
-
-  /// Блокировка модуля биометрией (по настройкам, отдельно для общей папки и паролей).
-  Widget _gate(String m, Widget page) {
-    if (_tab != m) return page;
-    if (!s.settings.modLock.containsKey(m)) return page;
-    if (!s.moduleLocked(m)) {
-      s.moduleTouch(m);
-      return page;
-    }
-    return Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.lock_outline, size: 44),
-        const SizedBox(height: 12),
-        Text('${_names[m]} заблокирован'),
-        const SizedBox(height: 12),
-        FilledButton.icon(
-          icon: const Icon(Icons.fingerprint),
-          label: const Text('Разблокировать'),
-          onPressed: () async {
-            final ok = await s.unlockModule(m);
-            if (mounted) {
-              setState(() {});
-              if (!ok) toast(context, 'Не удалось подтвердить личность');
-            }
-          },
-        ),
-      ]),
-    );
-  }
-
-  Widget _body() {
-    final mods = _mods;
-    if (!mods.contains(_tab)) _tab = 'home';
-    return IndexedStack(
-        index: mods.indexOf(_tab), children: [for (final m in mods) _page(m)]);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -604,7 +236,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
               appBar: AppBar(
                 title: Text(_title,
                     style: const TextStyle(
-                        fontSize: 24, fontWeight: FontWeight.w700)),
+                        fontSize: 20, fontWeight: FontWeight.w600)),
                 actions: [
                   _syncButton(),
                   const SizedBox(width: 4),
@@ -648,96 +280,4 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         );
       },
     );
-  }
-}
-
-/// Окно-напоминание (Windows): висит, пока не закроют, со звуком.
-class _AlertView extends StatelessWidget {
-  final CalEvent event;
-  const _AlertView({required this.event});
-
-  @override
-  Widget build(BuildContext context) {
-    final when = event.allDay
-        ? fmtDay(event.startDt)
-        : '${fmtDay(event.startDt)}, ${fmtTime(event.startDt)}';
-    return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Icon(event.isTask ? Icons.check_circle_outline : Icons.notifications_active,
-                  color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 10),
-              Text(event.isTask ? 'Задача' : 'Напоминание',
-                  style: TextStyle(color: Pal.secondary(context))),
-            ]),
-            const SizedBox(height: 10),
-            Text(event.title.isEmpty ? 'Без названия' : event.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Text(when, style: TextStyle(color: Pal.secondary(context))),
-            const Spacer(),
-            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-              TextButton(
-                  onPressed: () => Desktop.I.closeAlert(open: false),
-                  child: const Text('Закрыть')),
-              const SizedBox(width: 8),
-              FilledButton(
-                  onPressed: () => Desktop.I.closeAlert(open: true),
-                  child: const Text('Открыть')),
-            ]),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Главная, когда модуль «Заметки» отключён: быстрые переходы к включённым модулям.
-class _ModulesHome extends StatelessWidget {
-  final List<String> mods;
-  final void Function(String) onOpen;
-  const _ModulesHome({required this.mods, required this.onOpen});
-
-  @override
-  Widget build(BuildContext context) {
-    const names = {
-      'calendar': 'Календарь',
-      'pass': 'Пароли',
-      'shared': 'Общая папка',
-      'backup': 'Бэкап',
-    };
-    const icons = {
-      'calendar': Icons.calendar_month_outlined,
-      'pass': Icons.key_outlined,
-      'shared': Icons.folder_shared_outlined,
-      'backup': Icons.backup_outlined,
-    };
-    final l = mods.where((m) => names.containsKey(m)).toList();
-    if (l.isEmpty) {
-      return const Center(
-          child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text('Все модули отключены. Включите нужные в Настройки → Модули.',
-                  textAlign: TextAlign.center)));
-    }
-    return ListView(padding: const EdgeInsets.all(16), children: [
-      for (final m in l)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: AppCard(
-            child: ListTile(
-              leading: Icon(icons[m]),
-              title: Text(names[m]!),
-              onTap: () => onOpen(m),
-            ),
-          ),
-        ),
-    ]);
-  }
-}
+  }}

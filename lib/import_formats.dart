@@ -111,10 +111,10 @@ class Importer {
       await Backup.safetyCopy(s, 'import');
       note.value = 'Чтение…';
       if (f.kind == 'jex') {
-        msg = await Jex.importInto(s, await File(paths.first).readAsBytes(), progress: (t) => note.value = t);
+        msg = await JexIo.importInto(s, await File(paths.first).readAsBytes(), progress: (t) => note.value = t);
       } else if (f.kind == 'raw') {
         final tar = await compute(rawDirToTar, paths.first);
-        msg = await Jex.importInto(s, tar, progress: (t) => note.value = t);
+        msg = await JexIo.importInto(s, tar, progress: (t) => note.value = t);
       } else {
         final list = await compute(impParse, ImpJob(f.kind, paths, f.dir));
         if (list.isEmpty) {

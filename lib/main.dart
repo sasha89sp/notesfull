@@ -16,6 +16,7 @@ import 'status_strip.dart';
 import 'store.dart';
 import 'theme.dart';
 import 'diag_screens.dart';
+import 'dock.dart';
 
 Future<void> main() async {
   runZonedGuarded(() async {
@@ -184,9 +185,17 @@ class _AppState extends State<App> {
               ),
             );
           }
-          return MediaQuery(
+          final app = MediaQuery(
               data: mq.copyWith(textScaler: TextScaler.linear(mq.textScaler.scale(1) * sc)),
               child: body);
+          // режим дока: приложение остаётся в дереве (состояние не теряется), но скрыто
+          return ValueListenableBuilder<bool>(
+            valueListenable: DockMode.active,
+            builder: (context, dock, _) => Stack(fit: StackFit.expand, children: [
+              Offstage(offstage: dock, child: app),
+              if (dock && _unlocked) Positioned.fill(child: DockView(store: store)),
+            ]),
+          );
         },
       ),
       home: home,

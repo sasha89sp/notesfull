@@ -90,7 +90,7 @@ class Accounts {
 
   /// Поля, которые не переносятся между устройствами (способ подключения к
   /// хранилищу и данные самого аккаунта определяются при входе).
-  static const _skip = {'url', 'user', 'pass', 'storage', 'folder', 'localPath', 'userId', 'uiMode', 'bgSync', 'syncOnStart', 'showSchedule', 'syncOnResume', 'syncOnNet', 'syncOnChange', 'syncEvery', 'gcalEvery', 'gcalLast', 'txModelSrc', 'platform', 'folderSyncs', 'stripPos', 'navMode', 'sharedEvery', 'sharedComments', 'sharedOnOpen', 'sharedLast', 'paneW', 'paneOrder', 'fontScale', 'modLock'};
+  static const _skip = {'url', 'user', 'pass', 'storage', 'folder', 'localPath', 'userId', 'uiMode', 'bgSync', 'syncOnStart', 'showSchedule', 'syncOnResume', 'syncOnNet', 'syncOnChange', 'syncEvery', 'gcalEvery', 'gcalLast', 'txModelSrc', 'platform', 'remapOn', 'remaps', 'dictGlobal', 'dictKeys', 'dockItems', 'dockPos', 'dockSize', 'dockZoom', 'dockOpacity', 'dockOnTop', 'folderSyncs', 'stripPos', 'navMode', 'sharedEvery', 'sharedComments', 'sharedOnOpen', 'sharedLast', 'paneW', 'paneOrder', 'fontScale', 'modLock'};
 
   static Map<String, dynamic> exportSettings(Settings s) {
     final m = Map<String, dynamic>.from(s.toJson());

@@ -8,8 +8,7 @@ import 'store.dart';
 
 /// Подписка на онлайн-календарь по ссылке iCal (.ics / webcal://), только чтение.
 /// События получают стабильные id, поэтому обновление не плодит дубли, а исчезнувшие
-/// из ленты события помечаются удалёнными. Повторяющиеся события (RRULE) показываются
-/// только первым вхождением.
+/// из ленты события помечаются удалёнными. Повторяющиеся события (RRULE) раскрываются на год вперёд (см. IcsRaw.occurrences).
 class IcalSub {
   static bool _busy = false;
 
@@ -23,9 +22,28 @@ class IcalSub {
     if (!text.contains('BEGIN:VCALENDAR')) throw 'По ссылке не календарь iCal';
     final seen = <String>{};
     var added = 0, upd = 0;
+    final now = DateTime.now();
+    final from = now.subtract(const Duration(days: 30));
+    final to = now.add(const Duration(days: 400));
+    final all = <CalEvent>[];
     for (final m in IcsRaw.parse(text)) {
-      final e = IcsRaw.toCal(m, calId: c.id);
-      if (e == null) continue;
+      final base = IcsRaw.toCal(m, calId: c.id);
+      if (base == null) continue;
+      if (IcsRaw.get(m, 'RRULE') == null) {
+        all.add(base);
+        continue;
+      }
+      // повторяющееся событие раскрываем на ближайший год
+      final len = base.end - base.start;
+      for (final d in IcsRaw.occurrences(m, from, to)) {
+        final ev = IcsRaw.toCal(m, calId: c.id)!;
+        ev.id = '${base.id}_${d.year}${d.month}${d.day}';
+        ev.start = d.millisecondsSinceEpoch;
+        ev.end = d.millisecondsSinceEpoch + len;
+        all.add(ev);
+      }
+    }
+    for (final e in all) {
       // id включает календарь: одно и то же событие из двух лент не склеивается
       e.id = 'sub${c.id.hashCode.toUnsigned(24).toRadixString(36)}_${e.id}';
       seen.add(e.id);

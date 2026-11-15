@@ -1,5 +1,9 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'models.dart';
+
+part 'ics_2.dart';
+
 
 class Ics {
   static String _esc(String s) => s
@@ -106,130 +110,5 @@ class Ics {
       }
     }
     return out;
-  }
-}
-
-/// «Сырые» события VEVENT: список «свойство → значение», где ключ — имя вместе с параметрами
-/// (например `DTSTART;VALUE=DATE`). Нужны блоку «Календарь .ics» в заметке: все свойства
-/// сохраняются и редактируются, неизвестные не теряются.
-class IcsRaw {
-  static List<String> _unfold(String text) {
-    final lines = <String>[];
-    for (final raw in const LineSplitter().convert(text)) {
-      if ((raw.startsWith(' ') || raw.startsWith('\t')) && lines.isNotEmpty) {
-        lines[lines.length - 1] += raw.substring(1);
-      } else {
-        lines.add(raw);
-      }
-    }
-    return lines;
-  }
-
-  static List<Map<String, String>> parse(String text) {
-    final out = <Map<String, String>>[];
-    Map<String, String>? cur;
-    var depth = 0; // вложенные компоненты (VALARM) пропускаем
-    for (final l in _unfold(text)) {
-      if (l == 'BEGIN:VEVENT') {
-        cur = {};
-        depth = 0;
-      } else if (l == 'END:VEVENT' && cur != null) {
-        out.add(cur);
-        cur = null;
-      } else if (cur != null) {
-        if (l.startsWith('BEGIN:')) {
-          depth++;
-        } else if (l.startsWith('END:')) {
-          if (depth > 0) depth--;
-        } else if (depth == 0) {
-          final i = l.indexOf(':');
-          if (i > 0) cur[l.substring(0, i)] = l.substring(i + 1);
-        }
-      }
-    }
-    return out;
-  }
-
-  static String build(List<Map<String, String>> evs) {
-    final sb = StringBuffer('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//ASRbox//RU\r\n');
-    for (final m in evs) {
-      sb.write('BEGIN:VEVENT\r\n');
-      for (final k in m.keys.toList()) {
-        sb.write('$k:${m[k]}\r\n');
-      }
-      sb.write('END:VEVENT\r\n');
-    }
-    sb.write('END:VCALENDAR\r\n');
-    return sb.toString();
-  }
-
-  static String name(String key) => key.split(';').first.toUpperCase();
-
-  static String? get(Map<String, String> m, String n) {
-    for (final e in m.entries) {
-      if (name(e.key) == n) return e.value;
-    }
-    return null;
-  }
-
-  static String? keyOf(Map<String, String> m, String n) {
-    for (final k in m.keys) {
-      if (name(k) == n) return k;
-    }
-    return null;
-  }
-
-  static String text(String v) => Ics._unesc(v);
-  static String esc(String v) => Ics._esc(v);
-
-  static bool isAllDay(Map<String, String> m) {
-    final k = keyOf(m, 'DTSTART') ?? '';
-    return k.contains('VALUE=DATE') && !k.contains('DATE-TIME');
-  }
-
-  static DateTime? start(Map<String, String> m) {
-    final v = get(m, 'DTSTART');
-    return v == null ? null : Ics._parseDt(v, isAllDay(m));
-  }
-
-  static DateTime? end(Map<String, String> m) {
-    final v = get(m, 'DTEND');
-    if (v == null) return null;
-    final e = Ics._parseDt(v, isAllDay(m));
-    return e != null && isAllDay(m) ? e.subtract(const Duration(days: 1)) : e;
-  }
-
-  /// Записать дату начала/конца (конец весь день — включительно, в файл пишется +1 день).
-  static void setDate(Map<String, String> m, String prop, DateTime d, bool allDay) {
-    final old = keyOf(m, prop);
-    if (old != null) m.remove(old);
-    if (allDay) {
-      final x = prop == 'DTEND' ? d.add(const Duration(days: 1)) : d;
-      m['$prop;VALUE=DATE'] = Ics._day(x);
-    } else {
-      m[prop] = Ics._utc(d);
-    }
-  }
-
-  static CalEvent? toCal(Map<String, String> m, {String calId = ''}) {
-    final s = start(m);
-    if (s == null) return null;
-    final allDay = isAllDay(m);
-    var e = end(m) ?? (allDay ? s : s.add(const Duration(hours: 1)));
-    if (e.isBefore(s)) e = s;
-    final uid = get(m, 'UID') ?? '${s.millisecondsSinceEpoch}${get(m, 'SUMMARY') ?? ''}';
-    final loc = get(m, 'LOCATION');
-    final desc = text(get(m, 'DESCRIPTION') ?? '');
-    return CalEvent(
-      id: 'ics${uid.hashCode.toUnsigned(32).toRadixString(36)}',
-      title: text(get(m, 'SUMMARY') ?? ''),
-      notes: loc == null || loc.isEmpty ? desc : '${text(loc)}${desc.isEmpty ? '' : '\n$desc'}',
-      start: s.millisecondsSinceEpoch,
-      end: e.millisecondsSinceEpoch,
-      allDay: allDay,
-      remind: allDay ? -1 : 15,
-      calId: calId,
-      updatedAt: nowMs(),
-    );
   }
 }

@@ -178,7 +178,7 @@ class PassStore extends ChangeNotifier {
     if (!store.settings.syncConfigured) return;
     _syncTimer = Timer(const Duration(seconds: 3), () async {
       try {
-        await SyncService.runPasswords(store, this);
+        await SyncChat.runPasswords(store, this);
         syncStatus = 'Пароли синхронизированы';
         await save();
         notifyListeners();

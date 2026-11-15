@@ -124,15 +124,17 @@ jobs:
         shell: bash
         run: python3 ci/patch_windows.py
 
-      - name: Enable local Whisper
+      - name: Enable local Whisper and Windows API
         shell: pwsh
         run: |
           Copy-Item pubspec.yaml "$env:RUNNER_TEMP/pubspec.plain"
           Copy-Item lib/local_tx.dart "$env:RUNNER_TEMP/local_tx.plain"
+          Copy-Item lib/winsys.dart "$env:RUNNER_TEMP/winsys.plain"
           Copy-Item variants/whisper/local_tx.dart lib/local_tx.dart -Force
-          (Get-Content pubspec.yaml) -replace '^  archive: .*$', "`$0`n  whisper_ggml: ^2.9.0" | Set-Content pubspec.yaml
+          Copy-Item variants/win32/winsys.dart lib/winsys.dart -Force
+          (Get-Content pubspec.yaml) -replace '^  archive: .*$', "`$0`n  whisper_ggml: ^2.9.0`n  win32: ^5.5.0`n  ffi: ^2.1.0" | Set-Content pubspec.yaml
 
-      - name: Build Windows with Whisper
+      - name: Build Windows (Whisper + win32)
         id: full
         continue-on-error: true
         shell: pwsh
@@ -142,15 +144,32 @@ jobs:
           flutter pub get
           flutter build windows --release
 
-      - name: Rebuild Windows without Whisper (fallback)
+      - name: Rebuild with win32 only (fallback 1)
+        id: fb1
         if: steps.full.outcome == 'failure'
+        continue-on-error: true
         shell: pwsh
         env:
           CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
         run: |
-          Write-Host "::warning::Build with local Whisper failed, rebuilding without it"
+          Write-Host "::warning::Build with Whisper+win32 failed, rebuilding with win32 only"
           Copy-Item "$env:RUNNER_TEMP/pubspec.plain" pubspec.yaml -Force
           Copy-Item "$env:RUNNER_TEMP/local_tx.plain" lib/local_tx.dart -Force
+          (Get-Content pubspec.yaml) -replace '^  archive: .*$', "`$0`n  win32: ^5.5.0`n  ffi: ^2.1.0" | Set-Content pubspec.yaml
+          flutter clean
+          flutter pub get
+          flutter build windows --release
+
+      - name: Rebuild plain (fallback 2)
+        if: steps.fb1.outcome == 'failure'
+        shell: pwsh
+        env:
+          CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+        run: |
+          Write-Host "::warning::Build with win32 failed, rebuilding without plugins"
+          Copy-Item "$env:RUNNER_TEMP/pubspec.plain" pubspec.yaml -Force
+          Copy-Item "$env:RUNNER_TEMP/local_tx.plain" lib/local_tx.dart -Force
+          Copy-Item "$env:RUNNER_TEMP/winsys.plain" lib/winsys.dart -Force
           flutter clean
           flutter pub get
           flutter build windows --release

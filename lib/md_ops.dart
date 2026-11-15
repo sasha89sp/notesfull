@@ -64,6 +64,8 @@ class MdOps {
     return (from, to);
   }
 
+  static (int, int) lineRange(String t, TextSelection s) => _lineRange(t, s);
+
   static final RegExp _anyPrefix =
       RegExp(r'^(\s*)(#{1,6} |> |[-*+] \[[ xX]\] |[-*+] |\d+[.)] )');
 
