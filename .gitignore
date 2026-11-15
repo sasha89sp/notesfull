@@ -7,3 +7,5 @@ pubspec.lock
 *.iml
 .idea/
 .DS_Store
+brief.txt
+.apply_backup/
