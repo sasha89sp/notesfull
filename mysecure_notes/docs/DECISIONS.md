@@ -117,3 +117,7 @@
 - Классы только со статикой разделены на несколько классов: SyncService → SyncService/SyncScopes/SyncChat; Jex → Jex/JexParse/JexIo; Groups → Groups/GroupsInvite; GoogleCal → GoogleCal/GoogleSync. Все вызовы (lib, tests) переписаны автоматически: `Jex.parse` → `JexParse.parse`, `SyncService.runPasswords` → `SyncChat.runPasswords`, `Groups.join/makeInvite/encode/parseInvite` → `GroupsInvite.*`, `GoogleCal.sync` → `GoogleSync.sync`.
 - _SettingsScreenState._allWidgets разбит на _widgetsA..D (settings_screen_5/7/8/9).
 - РЕФАКТОРИНГ НЕ КОМПИЛИРОВАЛСЯ. Первым делом проверить CI; если ошибка «undefined name/method» — скорее всего пропущена ссылка на статический член или вынесенный метод.
+
+## CI после нарезки (2026-11-16)
+- Реальная ошибка: в diag_screens.dart не было `import 'transfer_screen.dart'` (TransferScreen) — добавлен.
+- Тесты падали на «Undefined name GroupsInvite/JexParse», «IcsRaw.occurrences not found» — все эти классы лежат в part-файлах. Подозрение: в репозиторий загрузилась лишь часть файлов (веб-загрузка GitHub ≤100 файлов за раз, а в проекте ~180). Сверять репозиторий с docs/MANIFEST.txt; загружать несколькими пакетами (например lib по половинам).

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'applog.dart';
 import 'models.dart';
 import 'store.dart';
+import 'transfer_screen.dart';
 import 'synchist.dart';
 import 'util.dart';
 import 'widgets.dart';
