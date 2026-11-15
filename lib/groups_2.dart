@@ -35,7 +35,7 @@ class GroupsInvite {
     var n = 0;
     while (await r.get('${g.folder}/invites/$inv.json') != null) {
       n++;
-      inv = '${stamp()}$n';
+      inv = '${Groups.stamp()}$n';
     }
     await r.putAtomic(
         '${g.folder}/invites/$inv.json',
@@ -113,7 +113,7 @@ class GroupsInvite {
       if (g.owner.isEmpty) g.owner = (m['owner'] ?? '') as String;
     } catch (_) {}
     final inv = g.invId.isEmpty ? g.id : g.invId;
-    final myId = '$inv${stamp()}$nm';
+    final myId = '$inv${Groups.stamp()}$nm';
     // запись о приглашении на сервере: права и разовость нельзя подменить в строке
     final recB = await dav.get('${g.folder}/invites/$inv.json');
     if (recB != null) {

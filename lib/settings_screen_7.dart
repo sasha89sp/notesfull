@@ -48,7 +48,7 @@ extension _ExtSettingsWidgetsB on _SettingsScreenState {
           const Hint('Отключённый модуль не загружается и не нагружает приложение. '
               'Связи работают и при отключённом модуле: например, событие, созданное '
               'из заметки, попадёт в календарь и напомнит о себе.'),
-          for (final m in const {
+          for (final m in {
             'notes': 'Заметки',
             'shared': 'Общая папка',
             'calendar': 'Календарь',
@@ -71,7 +71,7 @@ extension _ExtSettingsWidgetsB on _SettingsScreenState {
           const SectionTitle('Блокировка разделов'),
           const Hint('Отдельная проверка биометрией или кодом устройства для общей папки и паролей. '
               'Время считается с момента выхода из раздела или сворачивания приложения.'),
-          for (final m in const {'shared': 'Общая папка', 'pass': 'Пароли'}.entries)
+          for (final m in {'shared': 'Общая папка', 'pass': 'Пароли'}.entries)
             _drop(
                 m.value,
                 st.modLock.containsKey(m.key) ? '${st.modLock[m.key]}' : 'off',

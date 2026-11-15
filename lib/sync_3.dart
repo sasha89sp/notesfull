@@ -9,12 +9,12 @@ class SyncChat {
     if (!st.syncConfigured || !p.unlocked || p.syncKey == null) return;
     final dav = SyncService.remoteOf(st);
     await dav.mkcolAll(SyncService.root);
-    await dav.mkcol('$root/users');
+    await dav.mkcol('${SyncService.root}/users');
     await dav.mkcol(SyncService.personalDir);
     final r = SyncStats();
     await SyncScopes._mergeBlob(
       dav,
-      '$personalDir/passwords.enc',
+      '${SyncService.personalDir}/passwords.enc',
       p.syncKey!,
       p.entries.map((e) => e.toJson()).toList(),
       (list) {
@@ -222,7 +222,7 @@ class SyncChat {
       if (n.deleted) continue;
       Remote rm = dav;
       SecretKey? key = s.syncKey;
-      var dir = '$personalDir/attachments';
+      var dir = '${SyncService.personalDir}/attachments';
       if (n.isGroup) {
         final g = Groups.byVault(s.settings, n.vault);
         if (g == null || g.removed || g.key.isEmpty) continue;

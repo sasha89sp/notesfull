@@ -52,6 +52,9 @@ class ProfileInfo {
 }
 
 class Store extends ChangeNotifier {
+  /// Локальный индекс: нижний регистр текста каждой заметки, пересобирается только у изменённых.
+  final Map<String, (int, String)> _sidx = {};
+
   late Directory baseDir;
   late Directory dir; // папка текущего профиля
   List<ProfileInfo> profiles = [];

@@ -183,9 +183,6 @@ extension ExtStore3 on Store {
 
   // ------------------------------------------------------------ поиск по индексу
 
-  /// Локальный индекс: нижний регистр текста каждой заметки, пересобирается только у изменённых.
-  final Map<String, (int, String)> _sidx = {};
-
   String _searchText(Note n) {
     final e = _sidx[n.id];
     if (e != null && e.$1 == n.updatedAt) return e.$2;

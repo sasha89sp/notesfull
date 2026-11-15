@@ -121,3 +121,9 @@
 ## CI после нарезки (2026-11-16)
 - Реальная ошибка: в diag_screens.dart не было `import 'transfer_screen.dart'` (TransferScreen) — добавлен.
 - Тесты падали на «Undefined name GroupsInvite/JexParse», «IcsRaw.occurrences not found» — все эти классы лежат в part-файлах. Подозрение: в репозиторий загрузилась лишь часть файлов (веб-загрузка GitHub ≤100 файлов за раз, а в проекте ~180). Сверять репозиторий с docs/MANIFEST.txt; загружать несколькими пакетами (например lib по половинам).
+
+## Ошибки CI после нарезки, исправлены (2026-11-16)
+- Поле `_sidx` (тип-запись со скобками) ошибочно ушло в extension → возвращено в класс Store. Урок: extension не может иметь полей; тип-запись `(int, String)` сбивал определитель «поле/метод».
+- Строковые интерполяции `$root`, `${stamp()}`, `${Jex.bodyOf(..)}` не переписывались автоматически → исправлены вручную (SyncService.root, Groups.stamp, JexIo.bodyOf).
+- Extension на публичный класс (Settings, Store) виден только файлам, которые ИМПОРТИРУЮТ файл с extension: bg_sync.dart теперь импортирует models.dart (для syncConfigured/googleConfigured). При выносе методов в extension всегда проверять импорты потребителей.
+- settings_screen_7: `const {…if (Platform.isWindows)…}` — убран `const` (старая скрытая ошибка модулей).

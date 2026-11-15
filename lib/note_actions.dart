@@ -117,7 +117,7 @@ class NoteActions {
           final name = n.title.isEmpty ? 'note' : n.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
           final ok = n.attachmentIds().any(s.hasAttachment)
               ? await saveBytes('$name.zip', await JexIo.exportMarkdown(s, [n]))
-              : await saveBytes('$name.md', utf8.encode('# ${n.title}\n\n${Jex.bodyOf(n, (b) => null)}\n'));
+              : await saveBytes('$name.md', utf8.encode('# ${n.title}\n\n${JexIo.bodyOf(n, (b) => null)}\n'));
           if (ok && context.mounted) toast(context, 'Экспортировано');
         } catch (e) {
           if (context.mounted) toast(context, 'Ошибка экспорта: $e');
