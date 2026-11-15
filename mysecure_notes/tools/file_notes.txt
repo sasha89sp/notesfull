@@ -1,0 +1,79 @@
+# файл | область | описание (одна строка). Редактируйте вручную; codemap.py подхватывает.
+accounts.dart | sync | Реестр аккаунтов ASRbox на хранилище (accounts/<uid>.json), проверка пароля, синхронизация настроек (список _skip — что не едет между устройствами)
+applog.dart | core | Встроенный журнал ошибок и событий (AppLog.I.i/e)
+autofill.dart | pass | Автозаполнение Android: запрос и экран выбора записи пароля
+backup.dart | backup | Backup (полный бэкап профиля, страховочные копии safety/), Jex (импорт/экспорт Joplin JEX, экспорт Markdown, bodyOf/bodyLines)
+backup_page.dart | backup | Экран «Бэкап»: приложение и настройки / телефон (кнопка +, восстановление архива телефона)
+bg_sync.dart | core | Фоновая синхронизация Android через WorkManager (bgDispatcher, BgSync.apply)
+calendar_page.dart | calendar | Экран календаря (месяц/список событий и задач)
+chat_page.dart | shared | Общий чат группы: шифрованные сообщения, опрос, отправка
+comments_view.dart | shared | Комментарии к общим заметкам
+connect.dart | core | Экран подключения хранилища и аккаунта ASRbox (двухуровневая авторизация)
+crypto.dart | core | AES-256-GCM, PBKDF2; encrypt/decrypt, encryptJson/decryptJson в изолятах
+ctx_menu.dart | ui | Контекстное меню: CtxItem, showCtx, CtxArea (правая кнопка / долгое нажатие)
+desktop.dart | platform | Windows: трей, сворачивание, окно-напоминание
+desktop_notes.dart | notes | Компьютерный вид заметок в три блока (папки | список | редактор), горячие клавиши
+diag_screens.dart | core | История синхронизации и журнал ошибок
+editor.dart | notes | Редактор заметки (блоки, меню, экспорт, встраиваемый режим)
+event_screen.dart | calendar | Экран события / задачи
+formula.dart | notes | Вычисление формул таблиц (A1, диапазоны, функции)
+gdrive.dart | core | Google Диск как хранилище (Drive API, OAuth)
+google.dart | calendar | Синхронизация с Google Календарём
+groups.dart | shared | Группы: создание, приглашения, права, вступление, профили участников
+hub.dart | core | Связи между модулями (открыть заметку/событие из другого раздела)
+ics.dart | calendar | Импорт и экспорт календаря .ics
+local_tx.dart | notes | Заглушка локальной расшифровки голоса (подменяется в сборке whisper)
+lock.dart | core | Экран входа, создание профиля, пароль, биометрия
+main.dart | core | Точка входа, тема, MaterialApp.builder (масштаб, компактный вид, глобальная строка статуса)
+md.dart | notes | Разбор Markdown в блоки и отображение (MdDoc)
+md_editor.dart | notes | Текстовый блок с панелью форматирования
+md_ops.dart | notes | Операции форматирования Markdown над выделением (жирный, списки, ссылки)
+media.dart | notes | Блоки изображений, файлов и голоса
+merge.dart | sync | Трёхстороннее слияние заметок по блокам/строкам/ячейкам (mergeNotes)
+models.dart | core | Все модели данных: Note, Block, TableData, CalEvent, PassEntry, Group, Settings, ChatMsg
+note_actions.dart | notes | Действия над заметками и папками для контекстного меню
+notes_page.dart | notes | Список заметок (мобильный вид), главная
+notify.dart | core | Уведомления и напоминания (Android/Windows)
+panes.dart | ui | ThreePane: три блока с перестановкой и изменением ширины
+pass_io.dart | pass | Импорт/экспорт паролей: Bitwarden, KeePass, LastPass, CSV
+pass_page.dart | pass | Экран паролей: мобильный список и компьютерный вид в три блока, карточка записи
+pass_store.dart | pass | Хранилище паролей (свой мастер-пароль и ключ)
+pdf_export.dart | notes | Экспорт заметок в PDF (пакет pdf, шрифт DejaVu)
+phone_data.dart | backup | Данные телефона Android: звонки, контакты, SMS, Wi-Fi; сбор и восстановление архива
+remote.dart | sync | Remote (WebDAV Dav, LocalRemote), счётчики и журнал сети Net
+settings_screen.dart | core | Экран настроек (вид, модули, хранилище, бэкап, шифрование, блокировки, экспорт)
+shared_page.dart | shared | Раздел «Общая папка»: группы, приглашения, участники
+shell.dart | ui | Оболочка: вкладки, боковое меню (телефон), левая панель (компьютер), модули
+status_strip.dart | ui | Глобальная строка статуса синхронизации (на любом экране)
+store.dart | core | Главное хранилище состояния: профили, ключи, заметки, события, чат, сохранение, поиск, блокировки модулей, запуск синхронизации
+sync.dart | sync | SyncService: обмен с сервером (заметки, события, папки, группы, вложения, чат, комментарии, пароли)
+synchist.dart | sync | Статистика и история синхронизации, отмена
+table_screen.dart | notes | Редактор таблиц
+totp.dart | pass | Одноразовые коды TOTP
+transcribe.dart | notes | Облачная расшифровка голоса (Whisper-совместимый API)
+transfer_screen.dart | ui | Подробный журнал передачи данных
+trash_screen.dart | notes | Корзина (30 дней)
+util.dart | core | Утилиты: runPool, writeAtomic/readValid, saveBytes, toast, isDesktop
+widgets.dart | ui | Общие виджеты: Pal, AppCard, Avatar, TagChip, Fab
+xlsx.dart | notes | Импорт и экспорт .xlsx
+app_menu.dart | ui | Верхнее меню компьютерного вида (Файл · Вид · Переход · Блокноты · Заметка · Сервис · Помощь), импорт/экспорт из меню
+import_formats.dart | notes | Реестр форматов импорта (JEX, RAW, ENEX, HTML, MD, MD+Front Matter, Obsidian, TXT, ONE) и запуск импорта с выбором файла/каталога
+import_model.dart | notes | Промежуточная заметка импорта (ImpNote) и запись её в хранилище (commitImport)
+import_parsers.dart | notes | Разбор форматов импорта в фоновом изоляте (impParse): Markdown, Obsidian, HTML, TXT, Evernote ENEX
+md5.dart | core | MD5 для сопоставления вложений Evernote (не для защиты данных)
+lib/theme.dart | UI | Дизайн-токены AppColors (светлая/тёмная) и buildTheme
+lib/sidebar.dart | UI | Левая панель 260px: новая заметка, мини-календарь, навигация, разделы, папки
+lib/schedule_panel.dart | UI | Правая панель «Расписание» 320px: таймлайн дня, карточки событий
+lib/model_dl.dart | Голос | Загрузка моделей Whisper (прогресс, докачка, зеркало) и блок ModelBox в настройках
+lib/mini_calendar.dart | UI | Мини-календарь (в правой панели над расписанием)
+lib/app_dirs.dart | Данные | Каталог данных, портативный режим Windows (portable.txt + data рядом с exe)
+lib/folder_sync.dart | Бэкап | Выгрузка папок/файлов на WebDAV: правила, расписание, блок настроек
+lib/calendars.dart | Календарь | Несколько календарей (локальные/Google): CalDef, Cals, блок настроек
+lib/ics_block.dart | Заметки | Блок заметки «Календарь .ics»: список «дата · текст», правка VEVENT, импорт/экспорт, в мои календари
+lib/ical_sub.dart | Календарь | Подписка на онлайн-календарь по ссылке iCal (только чтение), обновление раз в 2 часа
+lib/voice_page.dart | Голос | Модуль «Диктовка»: зажать кнопку → расшифровка → буфер обмена (без глобальной горячей клавиши)
+lib/winsys.dart | Windows | Заглушка системных функций (isDown, переназначение клавиш); в Windows-сборке заменяется variants/win32/winsys.dart
+lib/dictation.dart | Голос | Сервис диктовки: запись → расшифровка → буфер; опрос глобальной комбинации (Windows)
+lib/win_module.dart | Windows | Модуль «Windows»: правила переназначения клавиш, комбинация диктовки, WinService.apply
+lib/dock.dart | Док | Режим дока (по мотивам RocketDock): DockMode, DockView (увеличение значков), DockPage (настройки)
+Части файлов: <имя>_N.dart = part of <имя>.dart (см. DECISIONS «Правило файл ≤ 300 строк»).
