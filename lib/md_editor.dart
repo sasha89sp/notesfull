@@ -15,6 +15,7 @@ class MdTextBlock extends StatefulWidget {
   final TextEditingController controller;
   final VoidCallback onChanged;
   final void Function(String noteId)? onOpenNote;
+  final bool viewOnly; // режим просмотра заметки: только отрисованный текст
 
   const MdTextBlock({
     super.key,
@@ -23,6 +24,7 @@ class MdTextBlock extends StatefulWidget {
     required this.controller,
     required this.onChanged,
     this.onOpenNote,
+    this.viewOnly = false,
   });
 
   @override
@@ -197,10 +199,12 @@ class _MdTextBlockState extends State<MdTextBlock> {
   @override
   Widget build(BuildContext context) {
     final dark = Pal.dark(context);
-    if (!_editing && b.content.trim().isNotEmpty) {
+    if ((widget.viewOnly || !_editing) && b.content.trim().isNotEmpty) {
       return GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onTap: () {
+        onTap: widget.viewOnly
+            ? null
+            : () {
           setState(() => _editing = true);
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) _focus.requestFocus();

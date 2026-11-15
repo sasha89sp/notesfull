@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'backup.dart';
+import 'folder_sync.dart';
 import 'sidebar.dart';
 import 'schedule_panel.dart';
 import 'app_menu.dart';
@@ -23,7 +24,7 @@ import 'settings_screen.dart';
 import 'shared_page.dart';
 import 'store.dart';
 import 'remote.dart';
-import 'transfer_screen.dart';
+import 'diag_screens.dart';
 import 'trash_screen.dart';
 import 'util.dart';
 import 'widgets.dart';
@@ -72,6 +73,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     _timer = Timer.periodic(const Duration(minutes: 30), (_) {
       Backup.autoIfDue(s);
       PhoneData.autoIfDue(s);
+      FolderSync.autoIfDue(s);
     });
     // периодическая синхронизация по настройке «Синхронизация → Периодически»
     _sched = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -410,7 +412,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     }
     return InkWell(
       onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => TransferScreen(store: s))),
+          MaterialPageRoute<void>(builder: (_) => DiagHub(store: s, tab: 0))),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 190),
         child: Text(text,

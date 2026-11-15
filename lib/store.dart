@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
+import 'app_dirs.dart';
+import 'ical_sub.dart';
 import 'accounts.dart';
 import 'applog.dart';
 import 'crypto.dart';
@@ -73,8 +75,27 @@ class Store extends ChangeNotifier {
   String get author => settings.author.isEmpty ? 'Я' : settings.author;
   String get profileId => settings.profileId;
 
+  /// Настройки, привязанные к устройству (пути, вид, панели, фоновая работа), не переносятся
+  /// между платформами: после восстановления бэкапа с другой платформы они сбрасываются.
+  Future<void> _adaptToPlatform() async {
+    final me = Platform.operatingSystem;
+    final st = settings;
+    if (st.platform == me) return;
+    if (st.platform.isNotEmpty) {
+      st.uiMode = 'auto';
+      st.paneOrder = ['side', 'list', 'detail'];
+      st.paneW = {'side': 230, 'list': 330};
+      st.bgSync = false;
+      st.folderSyncs = [];
+      if (st.storage == 'local') st.localPath = '';
+      AppLog.I.i('settings', 'Настройки перенесены с ${st.platform} на $me: локальные параметры сброшены');
+    }
+    st.platform = me;
+    await saveSettings(touch: false);
+  }
+
   Future<void> init() async {
-    baseDir = await getApplicationSupportDirectory();
+    baseDir = await AppDirs.base();
     if (!await baseDir.exists()) await baseDir.create(recursive: true);
     dir = baseDir;
     await _loadIndex();
@@ -375,6 +396,7 @@ class Store extends ChangeNotifier {
       settings.profileId = newId();
       await saveSettings();
     }
+    await _adaptToPlatform();
     AppLog.I.verbose = settings.verboseLog;
     await Groups.migrateLegacy(this);
     final h = await readJson('synchist.enc');
@@ -946,6 +968,8 @@ class Store extends ChangeNotifier {
           all.merge(r);
         }
       }
+      tok.check();
+      await IcalSub.syncDue(this); // подписки iCal: раз в 2 часа
     } on SyncCancelled {
       rec.status = 'cancelled';
       AppLog.I.i('sync', 'Синхронизация отменена пользователем');

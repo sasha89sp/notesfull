@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'calendars.dart';
 import 'models.dart';
 import 'store.dart';
 import 'widgets.dart';
@@ -20,6 +21,7 @@ class _EventScreenState extends State<EventScreen> {
   late DateTime _end;
   late bool _allDay;
   late int _remind;
+  late String _cal;
 
   CalEvent get e => widget.event;
 
@@ -32,6 +34,7 @@ class _EventScreenState extends State<EventScreen> {
     _end = e.endDt;
     _allDay = e.allDay;
     _remind = e.remind;
+    _cal = e.calId.isNotEmpty ? e.calId : (e.gId.isNotEmpty ? 'google' : 'main');
   }
 
   @override
@@ -90,6 +93,7 @@ class _EventScreenState extends State<EventScreen> {
     e.end = (e.isTask ? _start : end).millisecondsSinceEpoch;
     e.allDay = _allDay;
     e.remind = _remind;
+    e.calId = _cal;
     e.updatedAt = nowMs();
     if (widget.isNew) widget.store.events.add(e);
     widget.store.eventsChanged();
@@ -158,6 +162,19 @@ class _EventScreenState extends State<EventScreen> {
           ),
           _dtRow(e.isTask ? 'Срок' : 'Начало', true),
           if (!e.isTask) _dtRow('Конец', false),
+          if (Cals.all(widget.store.settings).length > 1)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Календарь'),
+              trailing: DropdownButton<String>(
+                value: Cals.all(widget.store.settings).any((c) => c.id == _cal) ? _cal : 'main',
+                items: [
+                  for (final c in Cals.all(widget.store.settings).where((c) => c.type != 'url' || c.id == _cal))
+                    DropdownMenuItem(value: c.id, child: Text(c.name)),
+                ],
+                onChanged: (v) => setState(() => _cal = v ?? 'main'),
+              ),
+            ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Напоминание'),

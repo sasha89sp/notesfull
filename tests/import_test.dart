@@ -1,9 +1,14 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mysecure_notes/import_parsers.dart';
+import 'package:mysecure_notes/ics.dart';
 import 'package:mysecure_notes/md5.dart';
+import 'package:mysecure_notes/models.dart';
+import 'package:mysecure_notes/pass_io.dart';
 
 void main() {
+  passwordIoTests();
+  icsRawTests();
   late Directory tmp;
   setUp(() async => tmp = await Directory.systemTemp.createTemp('asrbox_imp_'));
   tearDown(() async => tmp.delete(recursive: true));
@@ -64,5 +69,68 @@ void main() {
     final r = impParse(ImpJob('txt', ['${tmp.path}/заметка.txt'], false));
     expect(r.first.title, 'заметка');
     expect(r.first.body, contains('раз  \nдва'));
+  });
+}
+
+void passwordIoTests() {
+  group('PassIO', () {
+    test('KeePass XML: запись с историей не теряется, группы -> папки', () {
+      const xml = '<?xml version="1.0"?><KeePassFile><Root><Group><Name>Database</Name>'
+          '<Group><Name>Почта</Name>'
+          '<Entry><String><Key>Title</Key><Value>Gmail</Value></String>'
+          '<String><Key>UserName</Key><Value>me</Value></String>'
+          '<String><Key>Password</Key><Value ProtectInMemory="True">p&amp;1</Value></String>'
+          '<History><Entry><String><Key>Title</Key><Value>Old</Value></String></Entry></History></Entry>'
+          '</Group></Group></Root></KeePassFile>';
+      final l = PassIO.import('x.xml', xml);
+      expect(l.length, 1);
+      expect(l.first.title, 'Gmail');
+      expect(l.first.password, 'p&1');
+      expect(l.first.folder, 'Почта');
+    });
+    test('Bitwarden JSON: экспорт -> импорт', () {
+      final e = PassEntry.create()
+        ..title = 'Site'
+        ..username = 'u'
+        ..password = 'pw'
+        ..url = 'https://a.b'
+        ..folder = 'Work';
+      final back = PassIO.import('b.json', PassIO.exportBitwardenJson([e]));
+      expect(back.single.title, 'Site');
+      expect(back.single.folder, 'Work');
+      expect(back.single.password, 'pw');
+    });
+    test('Bitwarden CSV и KeePass: экспорт -> импорт', () {
+      final e = PassEntry.create()
+        ..title = 'A'
+        ..password = 'x,"y"'
+        ..url = 'u';
+      expect(PassIO.import('b.csv', PassIO.exportBitwardenCsv([e])).single.password, 'x,"y"');
+      expect(PassIO.import('k.xml', PassIO.exportKeepassXml([e])).single.password, 'x,"y"');
+    });
+  });
+}
+
+void icsRawTests() {
+  group('IcsRaw', () {
+    const src = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:a1\r\nDTSTART;VALUE=DATE:20261115\r\n'
+        'DTEND;VALUE=DATE:20261116\r\nSUMMARY:День\\, рождения\r\nX-CUSTOM:1\r\n'
+        'BEGIN:VALARM\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+    test('разбор и сборка сохраняют свойства', () {
+      final l = IcsRaw.parse(src);
+      expect(l.length, 1);
+      expect(IcsRaw.isAllDay(l.first), isTrue);
+      expect(IcsRaw.text(IcsRaw.get(l.first, 'SUMMARY')!), 'День, рождения');
+      expect(IcsRaw.get(l.first, 'X-CUSTOM'), '1');
+      final back = IcsRaw.parse(IcsRaw.build(l));
+      expect(back.first['UID'], 'a1');
+      expect(IcsRaw.start(back.first)!.day, 15);
+    });
+    test('в событие календаря', () {
+      final e = IcsRaw.toCal(IcsRaw.parse(src).first, calId: 'c1')!;
+      expect(e.allDay, isTrue);
+      expect(e.calId, 'c1');
+      expect(e.title, 'День, рождения');
+    });
   });
 }

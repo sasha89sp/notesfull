@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+import 'calendars.dart';
 import 'models.dart';
 import 'store.dart';
 import 'synchist.dart';
@@ -10,6 +11,12 @@ import 'synchist.dart';
 /// Google Calendar через HTTPS (без Google Play Services).
 /// Авторизация: OAuth «Desktop app» с обратным адресом на 127.0.0.1.
 class GoogleCal {
+  /// В Google уходят только события «Основного» календаря и календаря Google; локальные и подписки — нет.
+  static bool _toGoogle(CalEvent e) {
+    final id = Cals.idOf(e);
+    return id == 'main' || id == 'google';
+  }
+
   static String? _token;
   static DateTime _tokenExp = DateTime(2000);
 
@@ -166,7 +173,7 @@ class GoogleCal {
     };
     final unlinked = <String, CalEvent>{};
     for (final e in s.events) {
-      if (e.gId.isEmpty && !e.deleted && !e.isTask) {
+      if (e.gId.isEmpty && !e.deleted && !e.isTask && _toGoogle(e)) {
         unlinked[_key(e.title, e.start, e.end)] = e;
       }
     }
@@ -260,6 +267,7 @@ class GoogleCal {
     final todo = s.events
         .where((e) =>
             !e.isTask &&
+            (_toGoogle(e) || e.gId.isNotEmpty) &&
             ((e.deleted && e.gId.isNotEmpty) ||
                 (!e.deleted && (e.gId.isEmpty || e.updatedAt > e.gLocal))))
         .toList();

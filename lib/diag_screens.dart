@@ -10,9 +10,10 @@ import 'widgets.dart';
 /// Настройки → История синхронизации.
 class SyncHistoryScreen extends StatelessWidget {
   final Store store;
-  const SyncHistoryScreen({super.key, required this.store});
+  final bool embedded;
+  const SyncHistoryScreen({super.key, required this.store, this.embedded = false});
 
-  Future<void> _export(BuildContext context) async {
+  static Future<void> exportIt(BuildContext context, Store store) async {
     final b = StringBuffer('История синхронизации\n\n');
     for (final r in store.history.reversed) {
       b.writeln(r.toText());
@@ -28,13 +29,13 @@ class SyncHistoryScreen extends StatelessWidget {
       builder: (context, _) {
         final list = store.history.reversed.toList();
         return Scaffold(
-          appBar: AppBar(
+          appBar: embedded ? null : AppBar(
             title: const Text('История синхронизации'),
             actions: [
               IconButton(
                 tooltip: 'Экспорт в файл',
                 icon: const Icon(Icons.ios_share),
-                onPressed: list.isEmpty ? null : () => _export(context),
+                onPressed: list.isEmpty ? null : () => exportIt(context, store),
               ),
               IconButton(
                 tooltip: 'Очистить',
@@ -103,9 +104,10 @@ class SyncHistoryScreen extends StatelessWidget {
 /// Настройки → Отладка / диагностика.
 class LogScreen extends StatelessWidget {
   final Store store;
-  const LogScreen({super.key, required this.store});
+  final bool embedded;
+  const LogScreen({super.key, required this.store, this.embedded = false});
 
-  Future<void> _export(BuildContext context) async {
+  static Future<void> exportIt(BuildContext context) async {
     final ok =
         await saveBytes('mysecure_log.txt', utf8.encode(AppLog.I.exportText()));
     if (ok && context.mounted) toast(context, 'Журнал сохранён');
@@ -129,13 +131,13 @@ class LogScreen extends StatelessWidget {
       builder: (context, _) {
         final list = AppLog.I.entries.reversed.toList();
         return Scaffold(
-          appBar: AppBar(
+          appBar: embedded ? null : AppBar(
             title: const Text('Диагностика'),
             actions: [
               IconButton(
                 tooltip: 'Экспорт журнала',
                 icon: const Icon(Icons.ios_share),
-                onPressed: () => _export(context),
+                onPressed: () => exportIt(context),
               ),
               IconButton(
                 tooltip: 'Очистить',
@@ -183,6 +185,80 @@ class LogScreen extends StatelessWidget {
           ]),
         );
       },
+    );
+  }
+}
+
+/// Одно окно: «Процессы» · «История» · «Журнал» (отладка) с переключением вкладками.
+class DiagHub extends StatefulWidget {
+  final Store store;
+  final int tab; // 0 процессы, 1 история, 2 журнал
+  const DiagHub({super.key, required this.store, this.tab = 0});
+  @override
+  State<DiagHub> createState() => _DiagHubState();
+}
+
+class _DiagHubState extends State<DiagHub> with SingleTickerProviderStateMixin {
+  late final TabController _tc;
+
+  @override
+  void initState() {
+    super.initState();
+    _tc = TabController(length: 3, vsync: this, initialIndex: widget.tab.clamp(0, 2));
+    _tc.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _tc.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final i = _tc.index;
+    final s = widget.store;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Синхронизация и диагностика'),
+        actions: [
+          if (i == 0)
+            IconButton(
+                tooltip: 'Синхронизировать',
+                icon: const Icon(Icons.sync),
+                onPressed: s.syncing ? s.cancelSync : () => s.syncAll()),
+          if (i == 1) ...[
+            IconButton(
+                tooltip: 'Экспорт в файл',
+                icon: const Icon(Icons.ios_share),
+                onPressed: s.history.isEmpty ? null : () => SyncHistoryScreen.exportIt(context, s)),
+            IconButton(
+                tooltip: 'Очистить',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: s.history.isEmpty ? null : s.clearHistory),
+          ],
+          if (i == 2) ...[
+            IconButton(
+                tooltip: 'Экспорт журнала',
+                icon: const Icon(Icons.ios_share),
+                onPressed: () => LogScreen.exportIt(context)),
+            IconButton(
+                tooltip: 'Очистить',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: AppLog.I.clear),
+          ],
+        ],
+        bottom: TabBar(controller: _tc, tabs: const [
+          Tab(text: 'Процессы'),
+          Tab(text: 'История'),
+          Tab(text: 'Журнал'),
+        ]),
+      ),
+      body: TabBarView(controller: _tc, children: [
+        TransferScreen(store: s, embedded: true),
+        SyncHistoryScreen(store: s, embedded: true),
+        LogScreen(store: s, embedded: true),
+      ]),
     );
   }
 }

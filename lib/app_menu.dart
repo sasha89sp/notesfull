@@ -142,9 +142,9 @@ class AppMenu extends StatelessWidget {
           SubmenuButton(menuChildren: [
             _item('Настройки', h.settings),
             _item('История синхронизации', () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => SyncHistoryScreen(store: s)))),
+                MaterialPageRoute<void>(builder: (_) => DiagHub(store: s, tab: 1)))),
             _item('Журнал ошибок', () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => LogScreen(store: s)))),
+                MaterialPageRoute<void>(builder: (_) => DiagHub(store: s, tab: 2)))),
           ], child: const Text('Сервис')),
           SubmenuButton(menuChildren: [
             _item('О программе', () => showAboutDialog(

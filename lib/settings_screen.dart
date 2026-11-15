@@ -5,16 +5,19 @@ import 'package:android_intent_plus/android_intent.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'app_dirs.dart';
 import 'applog.dart';
 import 'autofill.dart';
 import 'backup.dart';
 import 'bg_sync.dart';
+import 'calendars.dart';
 import 'diag_screens.dart';
 import 'gdrive.dart';
 import 'import_formats.dart';
 import 'google.dart';
 import 'ics.dart';
 import 'local_tx.dart';
+import 'folder_sync.dart';
 import 'model_dl.dart';
 import 'models.dart';
 import 'pdf_export.dart';
@@ -569,15 +572,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   /// Папки настроек: каждая относится к модулю или общей теме.
-  static const _folders = <(String, String, List<String>)>[
-    ('⚙️', 'Основные', ['Профиль', 'Модули']),
-    ('☁️', 'Синхронизация', ['Синхронизация WebDAV', 'Когда синхронизировать', 'Общая папка', 'История синхронизации']),
-    ('📝', 'Заметки', ['Фото', 'Голос']),
-    ('📅', 'Календарь', ['Google Календарь']),
-    ('🔒', 'Безопасность', ['Блокировка разделов', 'Безопасность', 'Шифрование']),
-    ('💾', 'Данные', ['Резервная копия и перенос', 'Сохранение', 'Сброс']),
-    ('🛠', 'Отладка', ['Отладка и диагностика']),
+  static const _folders = <(String, String, List<String>, bool)>[
+    ('⚙️', 'Основные', ['Профиль', 'Модули', 'Блокировка разделов', 'Безопасность', 'Шифрование', 'Сохранение', 'Сброс'], false),
+    ('☁️', 'Синхронизация и бэкап', ['Синхронизация WebDAV', 'Когда синхронизировать', 'История синхронизации', 'Резервная копия и перенос', 'Файлы и папки на сервер'], false),
+    ('📝', 'Заметки', ['Фото'], false),
+    ('📅', 'Календарь', ['Календари', 'Google Календарь'], false),
+    ('👥', 'Общая папка', ['Общая папка'], false),
+    ('🔑', 'Пароли', ['Пароли'], false),
+    ('🎙', 'Голос', ['Голос'], false),
+    ('🖥', 'Компьютер', ['Портативный режим'], true),
+    ('🛠', 'Отладка', ['Отладка и диагностика'], false),
+    // сюда добавляются модули только для компьютера (4-е поле true): на телефоне скрыты
   ];
+
+  /// Папки, доступные на этой платформе.
+  static List<(String, String, List<String>, bool)> get _visible =>
+      [for (final f in _folders) if (!f.$4 || Platform.isWindows || Platform.isLinux || Platform.isMacOS) f];
   String? _folder;
 
   /// Все виджеты настроек, разрезанные по заголовкам разделов.
@@ -618,7 +628,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
 
   Widget _folderRow(int i, bool sel, VoidCallback f, {bool wide = false}) {
-    final fo = _folders[i];
+    final fo = _visible[i];
     final acc = Pal.accent(context);
     return InkWell(
       borderRadius: BorderRadius.circular(wide ? 6 : 10),
@@ -648,14 +658,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _folderBody(int i, Map<String, List<Widget>> secs) {
-    final names = _folders[i].$3;
+    final names = _visible[i].$3;
     return ListView(
       key: ValueKey('sf$i'),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
       children: [
         for (final n in names)
           if (secs.containsKey(n)) _sectionCard(n, secs[n]!),
-        if (i == _folders.length - 1) ...[
+        if (i == _visible.length - 1) ...[
           const Hint('Все изменения в настройках сохраняются автоматически.'),
           AnimatedBuilder(
             animation: s,
@@ -671,7 +681,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 820;
     final secs = _sections();
-    final sel = _folder == null ? (wide ? 0 : -1) : _folders.indexWhere((f) => f.$2 == _folder);
+    final sel = _folder == null ? (wide ? 0 : -1) : _visible.indexWhere((f) => f.$2 == _folder);
     final inFolder = !wide && sel >= 0;
     Widget body;
     if (wide) {
@@ -683,8 +693,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             border: Border(right: BorderSide(color: Pal.border(context))),
           ),
           child: ListView(padding: const EdgeInsets.only(top: 12), children: [
-            for (var i = 0; i < _folders.length; i++)
-              _folderRow(i, i == sel, () => setState(() => _folder = _folders[i].$2), wide: true),
+            for (var i = 0; i < _visible.length; i++)
+              _folderRow(i, i == sel, () => setState(() => _folder = _visible[i].$2), wide: true),
           ]),
         ),
         Expanded(
@@ -699,8 +709,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body = _folderBody(sel, secs);
     } else {
       body = ListView(padding: const EdgeInsets.all(16), children: [
-        for (var i = 0; i < _folders.length; i++)
-          _folderRow(i, false, () => setState(() => _folder = _folders[i].$2)),
+        for (var i = 0; i < _visible.length; i++)
+          _folderRow(i, false, () => setState(() => _folder = _visible[i].$2)),
       ]);
     }
     return PopScope(
@@ -710,7 +720,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(inFolder ? _folders[sel].$2 : 'Настройки'),
+          title: Text(inFolder ? _visible[sel].$2 : 'Настройки'),
           leading: inFolder
               ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _folder = null))
               : null,
@@ -791,6 +801,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _auto();
               },
             ),
+          if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) ...[
           _drop('Вид интерфейса', st.uiMode,
               const {'auto': 'Авто (по устройству)', 'desktop': 'Компьютер (три блока, мышь)', 'mobile': 'Телефон'},
               (v) {
@@ -814,21 +825,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label: const Text('Сбросить расположение блоков'),
               ),
             ),
+          ],
           Row(children: [
-            const Text('Размер шрифта'),
+            Text('Размер интерфейса ${(st.fontScale * 100).round()}%'),
             Expanded(
               child: Slider(
                 min: 0.8,
                 max: 1.6,
-                divisions: 8,
+                divisions: 16,
                 label: '${(st.fontScale * 100).round()}%',
-                value: st.fontScale.clamp(0.8, 1.6),
+                value: st.fontScale.clamp(0.8, 1.6).toDouble(),
                 onChanged: (v) {
-                  setState(() => st.fontScale = v);
+                  setState(() => st.fontScale = double.parse(v.toStringAsFixed(2)));
                   s.refresh();
                   _auto();
                 },
               ),
+            ),
+            IconButton(
+              tooltip: 'Сбросить до 100%',
+              icon: const Icon(Icons.restart_alt, size: 20),
+              onPressed: st.fontScale == 1.0
+                  ? null
+                  : () {
+                      setState(() => st.fontScale = 1.0);
+                      s.refresh();
+                      _auto();
+                    },
             ),
           ]),
           _drop('Строка статуса синхронизации', st.stripPos,
@@ -1042,6 +1065,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'orig': 'Исходное',
           }, (v) => st.photoQuality = v),
 
+          const SectionTitle('Файлы и папки на сервер'),
+          FolderSyncBox(s: s),
+          const SectionTitle('Пароли'),
+          const Hint('Импорт и экспорт: раздел «Пароли» → кнопка ⋮ (три точки) → «Импорт» или «Экспорт». '
+              'Форматы: Bitwarden JSON/CSV, KeePass XML (.xml), LastPass, 1Password, Chrome/Firefox CSV, универсальный CSV. '
+              'Файл .kdbx зашифрован: в KeePass выберите «Файл → Экспорт → KeePass XML».'),
+          const SectionTitle('Портативный режим'),
+          Hint(Platform.isWindows
+              ? 'Данные (заметки, настройки, журнал) хранятся в папке «data» рядом с программой, '
+                  'а не в профиле Windows: программу можно носить на флешке. Состояние: '
+                  '${AppDirs.portable ? 'включён' : 'выключен'}. Изменение применяется после перезапуска.'
+              : 'Портативный режим есть только в Windows.'),
+          if (Platform.isWindows)
+            OutlinedButton(
+              onPressed: () async {
+                final msg = AppDirs.portable ? await AppDirs.disablePortable() : await AppDirs.enablePortable();
+                if (mounted) {
+                  toast(context, msg);
+                  setState(() {});
+                }
+              },
+              child: Text(AppDirs.portable ? 'Выключить портативный режим' : 'Включить портативный режим'),
+            ),
           const SectionTitle('Голос'),
           Hint(LocalTx.available
               ? 'Локальная расшифровка работает без интернета: модель Whisper скачивается один раз при '
@@ -1068,6 +1114,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _field('txKey', 'API-ключ', obscure: true),
           _field('txModel', 'Модель'),
 
+          const SectionTitle('Календари'),
+          CalendarsBox(s: s),
           const SectionTitle('Google Календарь'),
           const Hint(
               'Создайте в Google Cloud проект, включите Calendar API и OAuth-клиент типа «Desktop app». '
@@ -1139,7 +1187,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Hint('Дата, статус, сколько данных отправлено и получено, куда и подробный журнал.'),
           OutlinedButton(
             onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => SyncHistoryScreen(store: s))),
+                builder: (_) => DiagHub(store: s, tab: 1))),
             child: const Text('Открыть историю'),
           ),
 
@@ -1259,8 +1307,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Hint('Журнал ошибок, сбоев и зависаний с причинами; его можно сохранить файлом.'),
           OutlinedButton(
             onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => LogScreen(store: s))),
-            child: const Text('Открыть журнал'),
+                builder: (_) => DiagHub(store: s, tab: 2))),
+            child: const Text('Открыть журнал и процессы'),
           ),
     ];
   }

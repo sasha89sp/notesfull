@@ -482,11 +482,11 @@ class _PassPageState extends State<PassPage> {
                 }
               },
               itemBuilder: (_) => [
-                const PopupMenuItem(value: 'imp', child: Text('Импорт…')),
-                const PopupMenuItem(value: 'csv', child: Text('Экспорт CSV')),
-                const PopupMenuItem(value: 'bwjson', child: Text('Экспорт Bitwarden JSON')),
-                const PopupMenuItem(value: 'bwcsv', child: Text('Экспорт Bitwarden CSV')),
-                const PopupMenuItem(value: 'kp', child: Text('Экспорт KeePass XML')),
+                const PopupMenuItem(value: 'imp', child: Text('Импорт (Bitwarden, KeePass XML, CSV…)')),
+                const PopupMenuItem(value: 'csv', child: Text('Экспорт: CSV')),
+                const PopupMenuItem(value: 'bwjson', child: Text('Экспорт: Bitwarden JSON')),
+                const PopupMenuItem(value: 'bwcsv', child: Text('Экспорт: Bitwarden CSV')),
+                const PopupMenuItem(value: 'kp', child: Text('Экспорт: KeePass XML')),
                 if (p.savedActive)
                   const PopupMenuItem(
                       value: 'forget', child: Text('Забыть сохранённый пароль')),
@@ -738,11 +738,11 @@ class _PassPageState extends State<PassPage> {
               }
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(value: 'imp', child: Text('Импорт…')),
-              const PopupMenuItem(value: 'csv', child: Text('Экспорт CSV')),
-              const PopupMenuItem(value: 'bwjson', child: Text('Экспорт Bitwarden JSON')),
-              const PopupMenuItem(value: 'bwcsv', child: Text('Экспорт Bitwarden CSV')),
-              const PopupMenuItem(value: 'kp', child: Text('Экспорт KeePass XML')),
+              const PopupMenuItem(value: 'imp', child: Text('Импорт (Bitwarden, KeePass XML, CSV…)')),
+              const PopupMenuItem(value: 'csv', child: Text('Экспорт: CSV')),
+              const PopupMenuItem(value: 'bwjson', child: Text('Экспорт: Bitwarden JSON')),
+              const PopupMenuItem(value: 'bwcsv', child: Text('Экспорт: Bitwarden CSV')),
+              const PopupMenuItem(value: 'kp', child: Text('Экспорт: KeePass XML')),
               if (p.savedActive) const PopupMenuItem(value: 'forget', child: Text('Забыть сохранённый пароль')),
               const PopupMenuItem(value: 'lock', child: Text('Заблокировать')),
             ],

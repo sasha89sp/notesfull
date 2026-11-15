@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'event_screen.dart';
+import 'calendars.dart';
 import 'ics.dart';
 import 'models.dart';
 import 'store.dart';
@@ -35,7 +36,7 @@ class _CalendarPageState extends State<CalendarPage> {
   Map<int, List<CalEvent>> _buildIndex() {
     final m = <int, List<CalEvent>>{};
     for (final e in s.events) {
-      if (e.deleted) continue;
+      if (e.deleted || !Cals.visible(s.settings, e)) continue;
       final st = e.startDt;
       final en = e.isTask ? e.startDt : e.endDt;
       final sd = _d(st);
@@ -148,7 +149,7 @@ class _CalendarPageState extends State<CalendarPage> {
         else
           Padding(
             padding: const EdgeInsets.all(12),
-            child: Icon(Icons.event, color: Theme.of(context).colorScheme.primary),
+            child: Icon(Icons.event, color: Cals.color(s.settings, e)),
           ),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -375,7 +376,7 @@ class _CalendarPageState extends State<CalendarPage> {
       animation: s,
       builder: (context, _) {
         // индекс «день → события» пересобираем только когда события менялись
-        var sig = s.events.length;
+        var sig = s.events.length + Cals.sig(s.settings);
         for (final e in s.events) {
           sig = (sig * 31 + e.updatedAt + (e.deleted ? 7 : 0)) & 0x3fffffffffffffff;
         }

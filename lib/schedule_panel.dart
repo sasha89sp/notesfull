@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'event_screen.dart';
+import 'calendars.dart';
+import 'mini_calendar.dart';
 import 'models.dart';
 import 'store.dart';
 import 'widgets.dart';
@@ -37,7 +39,7 @@ class _SchedulePanelState extends State<SchedulePanel> {
     final b = a + const Duration(days: 1).inMilliseconds;
     final out = <CalEvent>[];
     for (final e in s.events) {
-      if (e.deleted) continue;
+      if (e.deleted || !Cals.visible(s.settings, e)) continue;
       if (e.isTask) {
         if (e.start >= a && e.start < b) out.add(e);
       } else if (e.start < b && (e.end > a || e.start >= a)) {
@@ -153,8 +155,10 @@ class _SchedulePanelState extends State<SchedulePanel> {
       decoration: BoxDecoration(
           color: Pal.panel(context), border: Border(left: BorderSide(color: Pal.border(context)))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        MiniCalendar(s: s),
+        Divider(height: 1, color: Pal.border(context)),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 6, 0),
+          padding: const EdgeInsets.fromLTRB(16, 10, 6, 0),
           child: Row(children: [
             Expanded(
               child: Text('РАСПИСАНИЕ',
@@ -234,6 +238,10 @@ class _EventCardState extends State<_EventCard> {
 
   (Color, Color) _colors(bool dark) {
     final e = widget.event;
+    if (Cals.idOf(e) != 'main') {
+      final c = Cals.color(widget.store.settings, e);
+      return (c.withOpacity(dark ? 0.20 : 0.14), c);
+    }
     final Color strong = e.isTask
         ? const Color(0xFF059669)
         : e.allDay

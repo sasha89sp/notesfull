@@ -478,6 +478,9 @@ class Note {
         case 'file':
           sb.write('📎 ${b.meta['name'] ?? 'файл'}  ');
           break;
+        case 'ics':
+          sb.write('📅 календарь  ');
+          break;
         case 'voice':
           sb.write('🎙 ${b.content.trim().isEmpty ? 'голосовая запись' : b.content}  ');
           break;
@@ -564,6 +567,7 @@ class CalEvent {
   int gSynced;
   int gLocal;
   String noteId; // заметка, из которой создано событие (связь модулей)
+  String calId; // календарь (пусто — по происхождению, см. Cals.idOf)
   int updatedAt;
 
   CalEvent({
@@ -581,6 +585,7 @@ class CalEvent {
     this.gSynced = 0,
     this.gLocal = 0,
     this.noteId = '',
+    this.calId = '',
     required this.updatedAt,
   });
 
@@ -619,6 +624,7 @@ class CalEvent {
         'gSynced': gSynced,
         'gLocal': gLocal,
         'noteId': noteId,
+        'calId': calId,
         'updatedAt': updatedAt,
       };
 
@@ -637,6 +643,7 @@ class CalEvent {
         gSynced: (j['gSynced'] ?? 0) as int,
         gLocal: (j['gLocal'] ?? 0) as int,
         noteId: (j['noteId'] ?? '') as String,
+        calId: (j['calId'] ?? '') as String,
         updatedAt: (j['updatedAt'] ?? 0) as int,
       );
 }
@@ -867,6 +874,9 @@ class Settings {
   bool syncOnNet; // при появлении сети
   bool syncOnChange; // через 5 с после правок
   int syncEvery; // периодически, минуты (0 — выключено)
+  List<Map<String, dynamic>> calendars; // календари (calendars.dart); пусто = «Основной» + Google
+  List<Map<String, dynamic>> folderSyncs; // правила «папка/файл → сервер» (folder_sync.dart)
+  String platform; // платформа, на которой настройки последний раз сохранялись (для восстановления на другой)
   String txModelSrc; // источник моделей Whisper: hf | mirror
   String stripPos; // строка статуса: bottom | top | sync (снизу, только при синхронизации) | off
   String navMode; // нижнее меню (телефон): show | auto (прячется при прокрутке вниз) | hide
@@ -946,6 +956,9 @@ class Settings {
     this.syncEvery = 30,
     this.gcalEvery = 120,
     this.txModelSrc = 'hf',
+    this.platform = '',
+    this.folderSyncs = const [],
+    this.calendars = const [],
     this.stripPos = 'bottom',
     this.navMode = 'show',
     this.sharedEvery = 15,
@@ -1030,6 +1043,9 @@ class Settings {
         'syncEvery': syncEvery,
         'gcalEvery': gcalEvery,
         'txModelSrc': txModelSrc,
+        'platform': platform,
+        'folderSyncs': folderSyncs,
+        'calendars': calendars,
         'stripPos': stripPos,
         'navMode': navMode,
         'sharedEvery': sharedEvery,
@@ -1103,6 +1119,9 @@ class Settings {
       syncEvery: (j['syncEvery'] ?? 30) as int,
       gcalEvery: (j['gcalEvery'] ?? 120) as int,
       txModelSrc: (j['txModelSrc'] ?? 'hf') as String,
+      platform: (j['platform'] ?? '') as String,
+      calendars: [for (final m in (j['calendars'] ?? []) as List) Map<String, dynamic>.from(m as Map)],
+      folderSyncs: [for (final m in (j['folderSyncs'] ?? []) as List) Map<String, dynamic>.from(m as Map)],
       stripPos: (j['stripPos'] ?? 'bottom') as String,
       navMode: (j['navMode'] ?? 'show') as String,
       sharedEvery: (j['sharedEvery'] ?? 15) as int,

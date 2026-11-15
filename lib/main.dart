@@ -15,7 +15,7 @@ import 'shell.dart';
 import 'status_strip.dart';
 import 'store.dart';
 import 'theme.dart';
-import 'transfer_screen.dart';
+import 'diag_screens.dart';
 
 Future<void> main() async {
   runZonedGuarded(() async {
@@ -142,7 +142,7 @@ class _AppState extends State<App> {
               compact: desk,
               top: stripTop,
               onOpen: () => navKey.currentState?.push(MaterialPageRoute<void>(
-                  builder: (_) => TransferScreen(store: store))));
+                  builder: (_) => DiagHub(store: store, tab: 0))));
           Widget body = Column(children: [
             if (_unlocked && widget.autofill == null && stripTop) stripW(),
             Expanded(

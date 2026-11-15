@@ -8,6 +8,7 @@ class PassIO {
   // ----------------------------------------------------------- импорт
 
   static List<PassEntry> import(String fileName, String text) {
+    if (text.startsWith('\uFEFF')) text = text.substring(1);
     final low = fileName.toLowerCase();
     if (low.endsWith('.kdbx')) {
       throw 'Файлы .kdbx зашифрованы. В KeePass выберите «Файл → Экспорт → KeePass XML» и импортируйте .xml';
@@ -99,6 +100,8 @@ class PassIO {
   }
 
   static List<PassEntry> _keepassXml(String text) {
+    // история изменений записи содержит вложенные <Entry> — убираем, иначе запись теряется
+    text = text.replaceAll(RegExp(r'<History>.*?</History>', dotAll: true), '');
     final out = <PassEntry>[];
     final groups = <String>[];
     final re = RegExp(r'<Group>|</Group>|<Entry>.*?</Entry>', dotAll: true);
@@ -118,7 +121,6 @@ class PassIO {
             .allMatches(tok)) {
           f[unescapeXml(s.group(1)!)] = unescapeXml(s.group(2)!);
         }
-        if (tok.contains('<History>')) continue;
         final folder = groups.length > 1 ? groups.sublist(1).join('/') : '';
         final e = PassEntry.create()
           ..title = f['Title'] ?? ''

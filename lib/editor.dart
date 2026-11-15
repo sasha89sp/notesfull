@@ -6,6 +6,7 @@ import 'pdf_export.dart';
 import 'comments_view.dart';
 import 'groups.dart';
 import 'hub.dart';
+import 'ics_block.dart';
 import 'md_editor.dart';
 import 'media.dart';
 import 'models.dart';
@@ -315,12 +316,80 @@ class _EditorScreenState extends State<EditorScreen> {
     _touch();
   }
 
+  bool _view = false; // режим просмотра (true) или правки (false)
+
+  /// Все метаданные заметки — в одной маленькой кнопке: хранилище, теги, автор и даты.
+  void _showMeta() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('О заметке', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Row(children: [
+                Icon(n.isGroup ? Icons.group_outlined : Icons.lock_outline, size: 18, color: Pal.secondary(context)),
+                const SizedBox(width: 8),
+                DropdownButton<String>(
+                  value: _vaults().any((v) => v.key == n.vault) ? n.vault : 'personal',
+                  underline: const SizedBox.shrink(),
+                  items: [for (final v in _vaults()) DropdownMenuItem(value: v.key, child: Text(v.value))],
+                  onChanged: _ro
+                      ? null
+                      : (v) {
+                          if (v == null) return;
+                          setState(() => n.vault = v);
+                          setSheet(() {});
+                          _touch();
+                        },
+                ),
+              ]),
+              const SizedBox(height: 8),
+              Wrap(children: [
+                for (final t in n.tags)
+                  TagChip(t, onDelete: () {
+                    setState(() => n.tags.remove(t));
+                    setSheet(() {});
+                    _touch();
+                  }),
+                ActionChip(
+                  label: const Text('+ тег'),
+                  onPressed: () async {
+                    await _addTag();
+                    setSheet(() {});
+                  },
+                  visualDensity: VisualDensity.compact,
+                ),
+              ]),
+              const SizedBox(height: 8),
+              Text(
+                'Создал: ${n.author.isEmpty ? '—' : n.author} · ${fmtDate(n.createdAt)}\n'
+                'Изменено: ${n.editor.isEmpty ? '—' : n.editor} · ${fmtDate(n.updatedAt)}',
+                style: TextStyle(color: Pal.secondary(context), fontSize: 12),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _header() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_view)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(n.title.isEmpty ? 'Без названия' : n.title,
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700)),
+            )
+          else
           TextField(
             controller: _title,
             style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
@@ -344,45 +413,6 @@ class _EditorScreenState extends State<EditorScreen> {
               ),
               child: const Text('Создатель общей папки ограничил вам редактирование: изменения не сохраняются.'),
             ),
-          Row(children: [
-            Icon(n.isGroup ? Icons.group_outlined : Icons.lock_outline,
-                size: 18, color: Pal.secondary(context)),
-            const SizedBox(width: 8),
-            DropdownButton<String>(
-              value: _vaults().any((v) => v.key == n.vault) ? n.vault : 'personal',
-              underline: const SizedBox.shrink(),
-              items: [
-                for (final v in _vaults())
-                  DropdownMenuItem(value: v.key, child: Text(v.value)),
-              ],
-              onChanged: _ro
-                  ? null
-                  : (v) {
-                      if (v == null) return;
-                      setState(() => n.vault = v);
-                      _touch();
-                    },
-            ),
-          ]),
-          const SizedBox(height: 8),
-          Wrap(children: [
-            for (final t in n.tags)
-              TagChip(t, onDelete: () {
-                setState(() => n.tags.remove(t));
-                _touch();
-              }),
-            ActionChip(
-              label: const Text('+ тег'),
-              onPressed: _addTag,
-              visualDensity: VisualDensity.compact,
-            ),
-          ]),
-          const SizedBox(height: 6),
-          Text(
-            'Создал: ${n.author.isEmpty ? '—' : n.author} · ${fmtDate(n.createdAt)}\n'
-            'Изменено: ${n.editor.isEmpty ? '—' : n.editor} · ${fmtDate(n.updatedAt)}',
-            style: TextStyle(color: Pal.secondary(context), fontSize: 12),
-          ),
         ],
       ),
     );
@@ -400,6 +430,8 @@ class _EditorScreenState extends State<EditorScreen> {
         return 'Таблица';
       case 'voice':
         return 'Голосовая запись';
+      case 'ics':
+        return 'Календарь (.ics)';
       case 'image':
         return 'Фото';
       case 'file':
@@ -421,6 +453,8 @@ class _EditorScreenState extends State<EditorScreen> {
             store: s,
             block: b,
             onChanged: _touch);
+      case 'ics':
+        return IcsBlockView(key: ValueKey('ics${b.id}'), store: s, block: b, onChanged: _touch);
       case 'image':
         return ImageBlockView(key: ValueKey('i${b.id}'), store: s, block: b);
       case 'file':
@@ -579,6 +613,44 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  /// Просмотр: без рамок, ручек и кнопок добавления — только содержимое.
+  Widget _viewBody() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      children: [
+        _header(),
+        for (final b in n.blocks)
+          if (!(b.type == 'text' && b.content.trim().isEmpty))
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: b.type == 'text'
+                  ? MdTextBlock(
+                      key: ValueKey('mdv${b.id}'),
+                      store: s,
+                      block: b,
+                      controller: _ctlFor(b),
+                      onChanged: _touch,
+                      onOpenNote: _openNote,
+                      viewOnly: true)
+                  : b.type == 'quote'
+                      ? Container(
+                          padding: const EdgeInsets.only(left: 12),
+                          decoration: BoxDecoration(
+                              border: Border(left: BorderSide(color: Pal.border(context), width: 3))),
+                          child: Text(b.content, style: const TextStyle(fontStyle: FontStyle.italic, fontSize: 16)))
+                      : b.type == 'code'
+                          ? Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                  color: Pal.card3(context), borderRadius: BorderRadius.circular(8)),
+                              child: Text(b.content, style: const TextStyle(fontFamily: 'monospace', fontSize: 14)))
+                          : _blockBody(b),
+            ),
+        n.isGroup ? CommentsView(store: s, note: n) : const SizedBox(height: 16),
+      ],
+    );
+  }
+
   Widget _addBtn(IconData icon, String label, VoidCallback f) {
     return TextButton.icon(
       icon: Icon(icon, size: 20),
@@ -593,6 +665,16 @@ class _EditorScreenState extends State<EditorScreen> {
       appBar: AppBar(
         automaticallyImplyLeading: !widget.embedded,
         actions: [
+          IconButton(
+            tooltip: _view ? 'Режим правки' : 'Режим просмотра',
+            icon: Icon(_view ? Icons.edit_outlined : Icons.visibility_outlined),
+            onPressed: () => setState(() => _view = !_view),
+          ),
+          IconButton(
+            tooltip: 'О заметке: хранилище, теги, даты',
+            icon: const Icon(Icons.info_outline),
+            onPressed: _showMeta,
+          ),
           IconButton(
             icon: Icon(n.favorite ? Icons.star : Icons.star_border),
             onPressed: () => _menu('fav'),
@@ -609,7 +691,7 @@ class _EditorScreenState extends State<EditorScreen> {
           ),
         ],
       ),
-      body: ReorderableListView(
+      body: _view ? _viewBody() : ReorderableListView(
         header: _header(),
         footer: n.isGroup
             ? CommentsView(store: s, note: n)
@@ -629,7 +711,7 @@ class _EditorScreenState extends State<EditorScreen> {
           for (var i = 0; i < n.blocks.length; i++) _blockCard(i, n.blocks[i]),
         ],
       ),
-      bottomNavigationBar: SafeArea(
+      bottomNavigationBar: _view ? null : SafeArea(
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -642,6 +724,7 @@ class _EditorScreenState extends State<EditorScreen> {
               _addBtn(Icons.mic_none, 'Голос', () => _addBlock('voice')),
               _addBtn(Icons.image_outlined, 'Фото', _addImage),
               _addBtn(Icons.attach_file, 'Файл', _addFile),
+              _addBtn(Icons.event_note_outlined, 'Календарь', () => _addBlock('ics')),
               _addBtn(Icons.format_quote, 'Цитата', () => _addBlock('quote')),
               _addBtn(Icons.code, 'Код', () => _addBlock('code')),
             ],

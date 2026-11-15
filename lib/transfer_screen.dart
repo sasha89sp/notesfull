@@ -7,7 +7,8 @@ import 'widgets.dart';
 /// Подробный журнал процессов синхронизации: этапы, каждый запрос, объём, время, скорость.
 class TransferScreen extends StatelessWidget {
   final Store store;
-  const TransferScreen({super.key, required this.store});
+  final bool embedded;
+  const TransferScreen({super.key, required this.store, this.embedded = false});
 
   String _t(int ms) {
     final d = DateTime.fromMillisecondsSinceEpoch(ms);
@@ -18,7 +19,7 @@ class TransferScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Процессы синхронизации')),
+      appBar: embedded ? null : AppBar(title: const Text('Процессы синхронизации')),
       body: AnimatedBuilder(
         animation: Listenable.merge([store, Net.tick]),
         builder: (context, _) {

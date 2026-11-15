@@ -65,3 +65,23 @@
 
 ## 2026-11-15 — Модель Whisper
 - Плагин whisper_ggml качал модель сам, без прогресса/ошибок (huggingface.co может быть недоступен). Теперь lib/model_dl.dart качает ggml-<модель>.bin сам (докачка .part, отмена, зеркало hf-mirror.com, Settings.txModelSrc) в getApplicationSupportDirectory (+ копия в Library, если есть). Расположение, которое ищет плагин, НЕ проверено по исходникам (нет доступа) — если плагин всё равно качает сам, поправить dirs(). Расшифровка ограничена 15 минутами. Версия плагина не менялась.
+
+## 2026-11-15 (вечер) — пакет по списку владельца (docs/REQUESTS_2026-11-15.txt, ROADMAP.md)
+- DiagHub (diag_screens.dart): вкладки Процессы/История/Журнал; старые экраны принимают embedded.
+- MiniCalendar перенесён из Sidebar в SchedulePanel (над расписанием).
+- Настройки: папки Основные / Синхронизация и бэкап / Заметки / Календарь / Общая папка / Пароли / Голос / Компьютер(только десктоп) / Отладка; «Вид интерфейса» скрыт на телефоне.
+- PassIO: история KeePass больше не теряет записи; BOM срезается.
+- AppDirs: портативный режим (portable.txt + data рядом с exe).
+- FolderSync: односторонняя выгрузка изменённых файлов на сервер бэкапов (…/files/<имя>), состояние в foldersync_state.json.
+- Не сделано, нужны плагины/объём: голос-модуль с горячей клавишей, модуль Windows (переназначение клавиш), RocketDock, единый редактор заметки, ICS в заметке, несколько календарей, мобильный Noteplan, кнопка метаданных.
+
+## 2026-11-15 (пакет 2)
+- Редактор: _view (просмотр/правка), метаданные в _showMeta (кнопка ⓘ); MdTextBlock.viewOnly.
+- Календари: Settings.calendars + CalEvent.calId; Cals.idOf: явный calId, иначе google (если gId) или main. Фильтры видимости в calendar_page/schedule_panel/mini_calendar (+Cals.sig в кэшах).
+- Блок 'ics': Block.content = текст .ics; IcsRaw (ics.dart) парсит VEVENT в Map<ключ с параметрами, значение>. «В мои календари» создаёт события с id 'ics'+хэш UID (повтор обновляет, не дублирует).
+- Не компилировалось.
+
+## 2026-11-15 (пакет 3)
+- IcalSub (type 'url' в CalDef): GET ссылки, события id 'sub<хэш календаря>_ics<хэш UID>', исчезнувшие помечаются deleted; вызывается из Store.syncAll (раз в 2 ч) и кнопкой в настройках.
+- Google: _toGoogle — только main/google; события локальных календарей и подписок не отправляются.
+- Settings.platform + Store._adaptToPlatform; docs/SETTINGS.md генерируется из Settings.toJson и Accounts._skip (пересоздавать при добавлении полей).

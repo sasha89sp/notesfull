@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
+import 'app_dirs.dart';
 
 class LogEntry {
   final DateTime at;
@@ -39,7 +39,7 @@ class AppLog extends ChangeNotifier {
 
   Future<void> init() async {
     try {
-      final d = await getApplicationSupportDirectory();
+      final d = await AppDirs.base();
       if (!await d.exists()) await d.create(recursive: true);
       _file = File('${d.path}${Platform.pathSeparator}applog.txt');
       if (await _file!.exists()) {
