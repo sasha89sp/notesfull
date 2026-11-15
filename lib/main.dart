@@ -14,6 +14,7 @@ import 'pass_store.dart';
 import 'shell.dart';
 import 'status_strip.dart';
 import 'store.dart';
+import 'theme.dart';
 import 'transfer_screen.dart';
 
 Future<void> main() async {
@@ -34,34 +35,6 @@ Future<void> main() async {
     final af = await autofillRequest();
     runApp(App(autofill: af));
   }, (e, st) => AppLog.I.e('zone', '$e', st));
-}
-
-ThemeData _theme(Brightness b) {
-  final dark = b == Brightness.dark;
-  final bg = dark ? Colors.black : Colors.white;
-  final accent = dark ? const Color(0xFF0A84FF) : const Color(0xFF007AFF);
-  final fg = dark ? Colors.white : Colors.black;
-  return ThemeData(
-    useMaterial3: true,
-    brightness: b,
-    colorScheme: ColorScheme.fromSeed(seedColor: accent, brightness: b)
-        .copyWith(primary: accent),
-    scaffoldBackgroundColor: bg,
-    appBarTheme: AppBarTheme(
-      backgroundColor: bg,
-      foregroundColor: fg,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-    ),
-    drawerTheme: DrawerThemeData(backgroundColor: bg),
-    navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: dark ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7),
-      indicatorColor: accent.withOpacity(0.18),
-    ),
-    inputDecorationTheme: InputDecorationTheme(
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-    ),
-  );
 }
 
 final GlobalKey<NavigatorState> navKey = GlobalKey<NavigatorState>();
@@ -145,8 +118,8 @@ class _AppState extends State<App> {
       title: 'ASRbox',
       navigatorKey: navKey,
       debugShowCheckedModeBanner: false,
-      theme: _theme(Brightness.light),
-      darkTheme: _theme(Brightness.dark),
+      theme: buildTheme(Brightness.light),
+      darkTheme: buildTheme(Brightness.dark),
       themeMode: _mode,
       locale: const Locale('ru'),
       supportedLocales: const [Locale('ru'), Locale('en')],
@@ -161,22 +134,26 @@ class _AppState extends State<App> {
           final mq = MediaQuery.of(context);
           final desk = _unlocked && store.useDesktop(mq.size.width);
           // в режиме компьютера всё мельче и плотнее; масштаб настраивается
-          final sc = _unlocked ? store.settings.fontScale * (desk ? 0.88 : 1.0) : 1.0;
+          final sc = _unlocked ? store.settings.fontScale * (desk ? 0.92 : 1.0) : 1.0;
           final strip = _unlocked && widget.autofill == null && StatusStrip.visible(store);
+          final stripTop = _unlocked && StatusStrip.isTop(store);
+          Widget stripW() => StatusStrip(
+              store: store,
+              compact: desk,
+              top: stripTop,
+              onOpen: () => navKey.currentState?.push(MaterialPageRoute<void>(
+                  builder: (_) => TransferScreen(store: store))));
           Widget body = Column(children: [
+            if (_unlocked && widget.autofill == null && stripTop) stripW(),
             Expanded(
                 child: strip
                     ? MediaQuery.removeViewPadding(
                         context: context,
-                        removeBottom: true,
+                        removeBottom: !stripTop,
+                        removeTop: stripTop,
                         child: child ?? const SizedBox.shrink())
                     : (child ?? const SizedBox.shrink())),
-            if (_unlocked && widget.autofill == null)
-              StatusStrip(
-                  store: store,
-                  compact: desk,
-                  onOpen: () => navKey.currentState?.push(MaterialPageRoute<void>(
-                      builder: (_) => TransferScreen(store: store)))),
+            if (_unlocked && widget.autofill == null && !stripTop) stripW(),
           ]);
           if (desk) {
             body = Theme(

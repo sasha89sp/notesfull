@@ -598,6 +598,16 @@ class Store extends ChangeNotifier {
     schedSync();
   }
 
+  /// Выбранный день (мини-календарь, панель «Расписание», календарь) и вид календаря.
+  DateTime viewDay = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+  String calView = 'month';
+
+  void setViewDay(DateTime d, {String? view}) {
+    viewDay = DateTime(d.year, d.month, d.day);
+    if (view != null) calView = view;
+    notifyListeners();
+  }
+
   bool _gcalDirty = false; // события менялись локально — Google нужно обновить
   int _lastRun = 0;
   int get lastRunMs => _lastRun;
@@ -908,7 +918,7 @@ class Store extends ChangeNotifier {
         setProgress('WebDAV: обмен данными…');
         final r = SyncStats();
         try {
-          await SyncService.run(this, r, tok);
+          await SyncService.run(this, r, tok, auto: auto);
         } catch (e, st) {
           if (e is SyncCancelled) rethrow;
           failed = true;

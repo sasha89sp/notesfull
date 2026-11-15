@@ -15,6 +15,7 @@ import 'import_formats.dart';
 import 'google.dart';
 import 'ics.dart';
 import 'local_tx.dart';
+import 'model_dl.dart';
 import 'models.dart';
 import 'pdf_export.dart';
 import 'store.dart';
@@ -156,6 +157,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _auto() {
     _autoTimer?.cancel();
     _autoTimer = Timer(const Duration(milliseconds: 700), _autoNow);
+  }
+
+  void _navFix() {
+    s.refresh();
+    _auto();
   }
 
   Future<void> _autoNow() async {
@@ -562,18 +568,164 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// Папки настроек: каждая относится к модулю или общей теме.
+  static const _folders = <(String, String, List<String>)>[
+    ('⚙️', 'Основные', ['Профиль', 'Модули']),
+    ('☁️', 'Синхронизация', ['Синхронизация WebDAV', 'Когда синхронизировать', 'Общая папка', 'История синхронизации']),
+    ('📝', 'Заметки', ['Фото', 'Голос']),
+    ('📅', 'Календарь', ['Google Календарь']),
+    ('🔒', 'Безопасность', ['Блокировка разделов', 'Безопасность', 'Шифрование']),
+    ('💾', 'Данные', ['Резервная копия и перенос', 'Сохранение', 'Сброс']),
+    ('🛠', 'Отладка', ['Отладка и диагностика']),
+  ];
+  String? _folder;
+
+  /// Все виджеты настроек, разрезанные по заголовкам разделов.
+  Map<String, List<Widget>> _sections() {
+    final out = <String, List<Widget>>{};
+    String? cur;
+    for (final w in _allWidgets()) {
+      if (w is SectionTitle) {
+        cur = w.text;
+        out[cur] = [];
+      } else if (cur != null) {
+        out[cur]!.add(w);
+      }
+    }
+    return out;
+  }
+
+  Widget _sectionCard(String title, List<Widget> kids) => Padding(
+        padding: const EdgeInsets.only(bottom: 18),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+            child: Text(title.toUpperCase(),
+                style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.5, color: Pal.muted(context))),
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            decoration: BoxDecoration(
+              color: Pal.card(context),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Pal.border(context)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: kids),
+          ),
+        ]),
+      );
+
+  Widget _folderRow(int i, bool sel, VoidCallback f, {bool wide = false}) {
+    final fo = _folders[i];
+    final acc = Pal.accent(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(wide ? 6 : 10),
+      onTap: f,
+      child: Container(
+        height: wide ? 34 : 52,
+        margin: wide ? const EdgeInsets.symmetric(horizontal: 8, vertical: 1) : const EdgeInsets.only(bottom: 8),
+        padding: EdgeInsets.symmetric(horizontal: wide ? 10 : 14),
+        decoration: BoxDecoration(
+          color: wide ? (sel ? Pal.border(context) : null) : Pal.card(context),
+          borderRadius: BorderRadius.circular(wide ? 6 : 10),
+          border: wide ? null : Border.all(color: Pal.border(context)),
+        ),
+        child: Row(children: [
+          Text(fo.$1, style: TextStyle(fontSize: wide ? 15 : 20)),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Text(fo.$2,
+                  style: TextStyle(
+                      fontSize: wide ? 14 : 16,
+                      fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
+                      color: sel ? acc : null))),
+          if (!wide) Icon(Icons.chevron_right, color: Pal.muted(context)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _folderBody(int i, Map<String, List<Widget>> secs) {
+    final names = _folders[i].$3;
+    return ListView(
+      key: ValueKey('sf$i'),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+      children: [
+        for (final n in names)
+          if (secs.containsKey(n)) _sectionCard(n, secs[n]!),
+        if (i == _folders.length - 1) ...[
+          const Hint('Все изменения в настройках сохраняются автоматически.'),
+          AnimatedBuilder(
+            animation: s,
+            builder: (context, _) =>
+                Text(s.status, style: TextStyle(color: Pal.secondary(context), fontSize: 13)),
+          ),
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Настройки'), actions: [
-        TextButton.icon(
-            onPressed: _saveOnly,
-            icon: const Icon(Icons.check),
-            label: const Text('Сохранить')),
-      ]),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+    final wide = MediaQuery.of(context).size.width >= 820;
+    final secs = _sections();
+    final sel = _folder == null ? (wide ? 0 : -1) : _folders.indexWhere((f) => f.$2 == _folder);
+    final inFolder = !wide && sel >= 0;
+    Widget body;
+    if (wide) {
+      body = Row(children: [
+        Container(
+          width: 240,
+          decoration: BoxDecoration(
+            color: Pal.sidebar(context),
+            border: Border(right: BorderSide(color: Pal.border(context))),
+          ),
+          child: ListView(padding: const EdgeInsets.only(top: 12), children: [
+            for (var i = 0; i < _folders.length; i++)
+              _folderRow(i, i == sel, () => setState(() => _folder = _folders[i].$2), wide: true),
+          ]),
+        ),
+        Expanded(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720), child: _folderBody(sel, secs)),
+          ),
+        ),
+      ]);
+    } else if (inFolder) {
+      body = _folderBody(sel, secs);
+    } else {
+      body = ListView(padding: const EdgeInsets.all(16), children: [
+        for (var i = 0; i < _folders.length; i++)
+          _folderRow(i, false, () => setState(() => _folder = _folders[i].$2)),
+      ]);
+    }
+    return PopScope(
+      canPop: !inFolder,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(() => _folder = null);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(inFolder ? _folders[sel].$2 : 'Настройки'),
+          leading: inFolder
+              ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _folder = null))
+              : null,
+          actions: [
+            TextButton.icon(
+                onPressed: _saveOnly, icon: const Icon(Icons.check), label: const Text('Сохранить')),
+          ],
+        ),
+        body: body,
+      ),
+    );
+  }
+
+  List<Widget> _allWidgets() {
+    return [
           const SectionTitle('Профиль'),
           _field('author', 'Ваше имя', hint: 'Папа'),
           Wrap(spacing: 10, children: [
@@ -679,6 +831,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ]),
+          _drop('Строка статуса синхронизации', st.stripPos,
+              const {
+                'bottom': 'Снизу',
+                'top': 'Сверху',
+                'sync': 'Снизу, только во время синхронизации',
+                'off': 'Скрыта',
+              },
+              (v) {
+            st.stripPos = v;
+            s.refresh();
+            _auto();
+          }),
+          _drop('Нижнее меню (телефон)', st.navMode,
+              const {
+                'show': 'Всегда показывать',
+                'auto': 'Прятать при прокрутке вниз',
+                'hide': 'Убрать (разделы — в боковом меню)',
+              },
+              (v) {
+            st.navMode = v;
+            _navFix();
+          }),
           _drop('Тема', st.theme,
               const {'system': 'Системная', 'light': 'Светлая', 'dark': 'Тёмная'},
               (v) {
@@ -773,6 +947,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'после правки события в приложении он обновится сразу. '
               'Если ничего не изменилось, файлы на устройстве не перезаписываются.'),
 
+          const SectionTitle('Общая папка'),
+          const Hint('Общие папки опрашиваются отдельно от личных данных: заметки, комментарии и чат '
+              'проверяются по этим правилам. Свои несохранённые правки уходят сразу, '
+              'а чат мгновенно при отправке сообщения.'),
+          _drop('Проверять по расписанию', '${st.sharedEvery}',
+              const {'0': 'Только вручную', '5': 'Каждые 5 минут', '15': 'Каждые 15 минут', '30': 'Каждые 30 минут', '60': 'Каждый час', '180': 'Каждые 3 часа'},
+              (v) {
+            st.sharedEvery = int.tryParse(v) ?? 0;
+            _auto();
+          }),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Обновлять при открытии раздела'),
+            value: st.sharedOnOpen,
+            onChanged: (v) => setState(() {
+              st.sharedOnOpen = v;
+              _auto();
+            }),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Комментарии при авто-синхронизации'),
+            subtitle: const Text('Если выключить, комментарии обновляются только кнопкой синхронизации',
+                style: TextStyle(fontSize: 12)),
+            value: st.sharedComments,
+            onChanged: (v) => setState(() {
+              st.sharedComments = v;
+              _auto();
+            }),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                st.sharedLast = 0;
+                s.syncAll();
+              },
+              icon: const Icon(Icons.sync, size: 18),
+              label: const Text('Обновить сейчас'),
+            ),
+          ),
+
           const SectionTitle('Модули'),
           const Hint('Отключённый модуль не загружается и не нагружает приложение. '
               'Связи работают и при отключённом модуле: например, событие, созданное '
@@ -844,6 +1060,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'base': 'Base (≈140 МБ)',
               'small': 'Small (≈460 МБ, точнее)',
             }, (v) => st.txLocalModel = v),
+          if (LocalTx.available) ModelBox(st: st, onChanged: _auto),
           _drop('Язык', st.txLang,
               const {'auto': 'Авто', 'ru': 'Русский', 'en': 'Английский'},
               (v) => st.txLang = v),
@@ -1045,17 +1262,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 builder: (_) => LogScreen(store: s))),
             child: const Text('Открыть журнал'),
           ),
-          const SizedBox(height: 8),
-          const Hint('Все изменения в настройках сохраняются автоматически.'),
-          const SizedBox(height: 8),
-          AnimatedBuilder(
-            animation: s,
-            builder: (context, _) => Text(s.status,
-                style: TextStyle(color: Pal.secondary(context), fontSize: 13)),
-          ),
-        ],
-      ),
-    );
+    ];
   }
 }
 

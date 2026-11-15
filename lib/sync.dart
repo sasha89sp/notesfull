@@ -39,7 +39,7 @@ class SyncService {
     return Dav(st.url, st.user, st.pass);
   }
 
-  static Future<void> run(Store s, SyncStats r, CancelToken tok) async {
+  static Future<void> run(Store s, SyncStats r, CancelToken tok, {bool auto = false}) async {
     final st = s.settings;
     final dav = remoteOf(st);
     await dav.mkcolAll(root);
@@ -82,11 +82,14 @@ class SyncService {
     tok.check();
 
     // 2в. Общие папки: у каждой свой WebDAV и ключ; сбой одной не мешает остальным
+    final sharedDue = !auto || _sharedDue(s);
+    if (sharedDue && st.groups.isNotEmpty) st.sharedLast = nowMs();
     for (final g in List<Group>.of(st.groups)) {
       tok.check();
+      if (!sharedDue) break;
       if (g.removed || g.key.isEmpty) continue;
       try {
-        await _group(s, g, r, tok);
+        await _group(s, g, r, tok, auto: auto);
       } on SyncCancelled {
         rethrow;
       } catch (e) {
@@ -173,7 +176,22 @@ class SyncService {
   // ---------------------------------------------------------------- профиль
 
   /// Синхронизация одной общей папки: права, участники, заметки, комментарии, чат.
-  static Future<void> _group(Store s, Group g, SyncStats r, CancelToken tok) async {
+  /// Пора ли трогать общие папки при автоматической синхронизации:
+  /// есть несинхронизированные локальные изменения или прошёл заданный интервал.
+  static bool _sharedDue(Store s) {
+    final st = s.settings;
+    if (st.groups.isEmpty) return false;
+    final dirty = s.notes.any((n) => n.vault != 'personal' && n.syncedAt < n.updatedAt) ||
+        s.comments.any((c) => !c.synced || (c.deleted && !c.delSynced));
+    if (dirty) return true;
+    if (st.sharedEvery <= 0) return false;
+    return nowMs() - st.sharedLast >= Duration(minutes: st.sharedEvery).inMilliseconds;
+  }
+
+  static final Map<String, int> _profAt = {};
+  static final Map<String, int> _profHash = {};
+
+  static Future<void> _group(Store s, Group g, SyncStats r, CancelToken tok, {bool auto = false}) async {
     final dav = Groups.remoteOf(g);
     final key = Groups.keyOf(g);
     await dav.mkcolAll(g.folder);
@@ -184,10 +202,16 @@ class SyncService {
       await s.saveSettings(touch: false);
       return;
     }
-    await Groups.putProfile(dav, g, s);
+    // профиль: перезаписываем только при изменении или раз в 30 минут (метка «был онлайн»)
+    final ph = Object.hash(g.myName, s.author, s.settings.color, g.rights, g.owner == s.settings.profileId);
+    if (_profHash[g.id] != ph || nowMs() - (_profAt[g.id] ?? 0) > 30 * 60000) {
+      await Groups.putProfile(dav, g, s);
+      _profHash[g.id] = ph;
+      _profAt[g.id] = nowMs();
+    }
     await _scope(dav, s, g.vault, g.notesDir, key, g, r, tok);
     tok.check();
-    await _comments(dav, s, g, key, r, tok);
+    if (!auto || s.settings.sharedComments) await _comments(dav, s, g, key, r, tok);
     await _chat(dav, s, g, key, r, tok);
   }
 

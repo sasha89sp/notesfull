@@ -151,10 +151,15 @@ class Dav extends Remote {
   /// Создать папку; ошибки (в т.ч. «уже существует») игнорируются.
   @override
   Future<void> mkcol(String path) async {
+    final k = '$base$path';
+    if (_made.contains(k)) return; // уже создавали в этом запуске — не спрашиваем сервер снова
     try {
-      await _send('MKCOL', path);
+      final r = await _send('MKCOL', path);
+      if (r.statusCode < 400 || r.statusCode == 405) _made.add(k);
     } catch (_) {}
   }
+
+  static final Set<String> _made = {};
 
   @override
   Future<Uint8List?> get(String path) async {

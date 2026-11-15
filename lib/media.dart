@@ -9,6 +9,7 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
 import 'local_tx.dart';
+import 'model_dl.dart';
 import 'models.dart';
 import 'store.dart';
 import 'transcribe.dart';
@@ -464,7 +465,11 @@ class _VoiceBlockViewState extends State<VoiceBlockView> {
             '${Directory.systemTemp.path}${Platform.pathSeparator}tx_${newId()}.$_ext';
         await File(path).writeAsBytes(bytes);
         try {
-          text = await LocalTx.transcribe(path, s.txLocalModel, s.txLang);
+          if (await ModelDl.have(s.txLocalModel) == 0 && mounted) {
+            toast(context, 'Модель не скачана: сначала Настройки → Голос → Скачать');
+          }
+          text = await LocalTx.transcribe(path, s.txLocalModel, s.txLang)
+              .timeout(const Duration(minutes: 15), onTimeout: () => throw 'Расшифровка не завершилась за 15 минут');
         } finally {
           try {
             File(path).deleteSync();

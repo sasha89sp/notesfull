@@ -10,10 +10,18 @@ class StatusStrip extends StatefulWidget {
   final Store store;
   final VoidCallback onOpen;
   final bool compact;
-  const StatusStrip({super.key, required this.store, required this.onOpen, this.compact = false});
+  final bool top;
+  const StatusStrip({super.key, required this.store, required this.onOpen, this.compact = false, this.top = false});
 
   /// Показывается ли строка сейчас (нужно, чтобы убрать нижний отступ у содержимого).
-  static bool visible(Store s) => s.syncing || s.lastSync != null;
+  static bool visible(Store s) {
+    final p = s.settings.stripPos;
+    if (p == 'off') return false;
+    if (p == 'sync') return s.syncing;
+    return s.syncing || s.lastSync != null;
+  }
+
+  static bool isTop(Store s) => s.settings.stripPos == 'top';
 
   @override
   State<StatusStrip> createState() => _StatusStripState();
@@ -54,11 +62,11 @@ class _StatusStripState extends State<StatusStrip> {
       text = last.status == 'ok' ? 'Синхронизировано ${last.when}' : last.statusText;
       if (last.status != 'ok' && last.status != 'cancelled') col = Pal.error(context);
     }
-    final bottom = MediaQuery.of(context).viewPadding.bottom;
+    final inset = widget.top ? MediaQuery.of(context).viewPadding.top : MediaQuery.of(context).viewPadding.bottom;
     return Material(
       color: dark ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7),
       child: Padding(
-        padding: EdgeInsets.only(bottom: bottom),
+        padding: widget.top ? EdgeInsets.only(top: inset) : EdgeInsets.only(bottom: inset),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           if (s.syncing)
             LinearProgressIndicator(minHeight: 2, value: s.progress),

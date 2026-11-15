@@ -12,31 +12,31 @@ _Создаётся автоматически: `python3 tools/codemap.py`. Оп
 - **lib/gdrive.dart** (287) Google Диск как хранилище (Drive API, OAuth) — `GDrive, GDriveRemote`
 - **lib/hub.dart** (88) Связи между модулями (открыть заметку/событие из другого раздела) — `Hub`
 - **lib/lock.dart** (373) Экран входа, создание профиля, пароль, биометрия — `LockScreen`
-- **lib/main.dart** (219) Точка входа, тема, MaterialApp.builder (масштаб, компактный вид, глобальная строка статуса) — `App`
+- **lib/main.dart** (196) Точка входа, тема, MaterialApp.builder (масштаб, компактный вид, глобальная строка статуса) — `App`
 - **lib/md5.dart** (64) MD5 для сопоставления вложений Evernote (не для защиты данных) — `md5Hex()`
-- **lib/models.dart** (1161) Все модели данных: Note, Block, TableData, CalEvent, PassEntry, Group, Settings, ChatMsg — `Cell, Merge, TableData, CheckItem, Block, Version`
+- **lib/models.dart** (1199) Все модели данных: Note, Block, TableData, CalEvent, PassEntry, Group, Settings, ChatMsg — `Cell, Merge, TableData, CheckItem, Block, Version`
 - **lib/notify.dart** (162) Уведомления и напоминания (Android/Windows) — `Notifier`
-- **lib/settings_screen.dart** (1110) Экран настроек (вид, модули, хранилище, бэкап, шифрование, блокировки, экспорт) — `SettingsScreen`
-- **lib/store.dart** (985) Главное хранилище состояния: профили, ключи, заметки, события, чат, сохранение, поиск, блокировки модулей, запуск синхронизации — `ProfileInfo, Store`
+- **lib/settings_screen.dart** (1317) Экран настроек (вид, модули, хранилище, бэкап, шифрование, блокировки, экспорт) — `SettingsScreen`
+- **lib/store.dart** (995) Главное хранилище состояния: профили, ключи, заметки, события, чат, сохранение, поиск, блокировки модулей, запуск синхронизации — `ProfileInfo, Store`
 - **lib/util.dart** (168) Утилиты: runPool, writeAtomic/readValid, saveBytes, toast, isDesktop — `setSecure, writeAtomic, saveBytes, toast, copyClear, csvEscape()`
 
 ## Синхронизация и хранилища
 
 - **lib/accounts.dart** (129) Реестр аккаунтов ASRbox на хранилище (accounts/<uid>.json), проверка пароля, синхронизация настроек (список _skip — что не едет между устройствами) — `Accounts`
 - **lib/merge.dart** (179) Трёхстороннее слияние заметок по блокам/строкам/ячейкам (mergeNotes)
-- **lib/remote.dart** (317) Remote (WebDAV Dav, LocalRemote), счётчики и журнал сети Net — `NetEvent, Net, Remote, Dav, LocalRemote`
-- **lib/sync.dart** (650) SyncService: обмен с сервером (заметки, события, папки, группы, вложения, чат, комментарии, пароли) — `SyncService`
+- **lib/remote.dart** (322) Remote (WebDAV Dav, LocalRemote), счётчики и журнал сети Net — `NetEvent, Net, Remote, Dav, LocalRemote`
+- **lib/sync.dart** (674) SyncService: обмен с сервером (заметки, события, папки, группы, вложения, чат, комментарии, пароли) — `SyncService`
 - **lib/synchist.dart** (131) Статистика и история синхронизации, отмена — `SyncCancelled, CancelToken, SyncStats, SyncRecord`
 
 ## Интерфейс и оболочка
 
-- **lib/app_menu.dart** (156) Верхнее меню компьютерного вида (Файл · Вид · Переход · Блокноты · Заметка · Сервис · Помощь), импорт/экспорт из меню — `MenuHandlers, AppMenu`
+- **lib/app_menu.dart** (161) Верхнее меню компьютерного вида (Файл · Вид · Переход · Блокноты · Заметка · Сервис · Помощь), импорт/экспорт из меню — `MenuHandlers, AppMenu`
 - **lib/ctx_menu.dart** (58) Контекстное меню: CtxItem, showCtx, CtxArea (правая кнопка / долгое нажатие) — `CtxItem, CtxArea`
 - **lib/panes.dart** (125) ThreePane: три блока с перестановкой и изменением ширины — `PaneSpec, ThreePane`
-- **lib/shell.dart** (753) Оболочка: вкладки, боковое меню (телефон), левая панель (компьютер), модули — `Shell`
-- **lib/status_strip.dart** (98) Глобальная строка статуса синхронизации (на любом экране) — `StatusStrip`
+- **lib/shell.dart** (742) Оболочка: вкладки, боковое меню (телефон), левая панель (компьютер), модули — `Shell`
+- **lib/status_strip.dart** (106) Глобальная строка статуса синхронизации (на любом экране) — `StatusStrip`
 - **lib/transfer_screen.dart** (88) Подробный журнал передачи данных — `TransferScreen`
-- **lib/widgets.dart** (157) Общие виджеты: Pal, AppCard, Avatar, TagChip, Fab — `Pal, AppCard, SectionTitle, Hint, Avatar, TagChip`
+- **lib/widgets.dart** (167) Общие виджеты: Pal, AppCard, Avatar, TagChip, Fab — `Pal, AppCard, SectionTitle, Hint, Avatar, TagChip`
 
 ## Заметки
 
@@ -47,10 +47,10 @@ _Создаётся автоматически: `python3 tools/codemap.py`. Оп
 - **lib/import_model.dart** (94) Промежуточная заметка импорта (ImpNote) и запись её в хранилище (commitImport) — `ImpRes, ImpNote`
 - **lib/import_parsers.dart** (314) Разбор форматов импорта в фоновом изоляте (impParse): Markdown, Obsidian, HTML, TXT, Evernote ENEX — `ImpJob`
 - **lib/local_tx.dart** (11) Заглушка локальной расшифровки голоса (подменяется в сборке whisper) — `LocalTx`
-- **lib/md.dart** (607) Разбор Markdown в блоки и отображение (MdDoc) — `MdBlock, MdPara, MdHeading, MdCode, MdQuote, MdHr`
+- **lib/md.dart** (634) Разбор Markdown в блоки и отображение (MdDoc) — `MdBlock, MdPara, MdHeading, MdCode, MdQuote, MdHr`
 - **lib/md_editor.dart** (269) Текстовый блок с панелью форматирования — `MdTextBlock`
 - **lib/md_ops.dart** (228) Операции форматирования Markdown над выделением (жирный, списки, ссылки) — `MdOps, MdListFormatter`
-- **lib/media.dart** (544) Блоки изображений, файлов и голоса — `ImageBlockView, FileBlockView, VoiceBlockView`
+- **lib/media.dart** (549) Блоки изображений, файлов и голоса — `ImageBlockView, FileBlockView, VoiceBlockView`
 - **lib/note_actions.dart** (175) Действия над заметками и папками для контекстного меню — `NoteActions`
 - **lib/notes_page.dart** (548) Список заметок (мобильный вид), главная — `NotesList`
 - **lib/pdf_export.dart** (80) Экспорт заметок в PDF (пакет pdf, шрифт DejaVu) — `PdfExport`
@@ -76,7 +76,7 @@ _Создаётся автоматически: `python3 tools/codemap.py`. Оп
 
 ## Календарь
 
-- **lib/calendar_page.dart** (403) Экран календаря (месяц/список событий и задач) — `CalendarPage`
+- **lib/calendar_page.dart** (488) Экран календаря (месяц/список событий и задач) — `CalendarPage`
 - **lib/event_screen.dart** (199) Экран события / задачи — `EventScreen`
 - **lib/google.dart** (342) Синхронизация с Google Календарём — `GoogleCal`
 - **lib/ics.dart** (111) Импорт и экспорт календаря .ics — `Ics`
@@ -90,6 +90,13 @@ _Создаётся автоматически: `python3 tools/codemap.py`. Оп
 ## Платформа
 
 - **lib/desktop.dart** (168) Windows: трей, сворачивание, окно-напоминание — `Desktop`
+
+## Без области
+
+- **lib/model_dl.dart** (240) Собственная загрузка моделей Whisper (ggml): с прогрессом, отменой, докачкой — `ModelDl, ModelBox`
+- **lib/schedule_panel.dart** (323) Правая панель «Расписание»: вертикальный таймлайн выбранного дня — `SchedulePanel`
+- **lib/sidebar.dart** (282) Левая панель компьютерного вида (260 px): «Новая заметка», мини-календарь, — `Sidebar`
+- **lib/theme.dart** (168) Палитра и тема приложения (минималистичный «нативный» стиль, как в Noteplan). — `AppColors`
 
 ## Тесты (tests/, при сборке копируются в test/)
 
@@ -112,22 +119,22 @@ _Создаётся автоматически: `python3 tools/codemap.py`. Оп
 - tools/make_icons.py
 - .github/workflows/build.yml — CI: test, android, windows, linux, macos
 
-Всего в lib/: 19524 строк.
+Всего в lib/: 20927 строк.
 
 ## Файлы больше 400 строк (кандидаты на дробление)
 
-- lib/models.dart: 1161
-- lib/settings_screen.dart: 1110
+- lib/settings_screen.dart: 1317
+- lib/models.dart: 1199
 - lib/pass_page.dart: 1060
-- lib/store.dart: 985
+- lib/store.dart: 995
 - lib/backup.dart: 967
 - lib/shared_page.dart: 790
-- lib/shell.dart: 753
+- lib/shell.dart: 742
+- lib/sync.dart: 674
 - lib/editor.dart: 654
-- lib/sync.dart: 650
-- lib/md.dart: 607
+- lib/md.dart: 634
+- lib/media.dart: 549
 - lib/notes_page.dart: 548
-- lib/media.dart: 544
+- lib/calendar_page.dart: 488
 - lib/connect.dart: 450
 - lib/backup_page.dart: 429
-- lib/calendar_page.dart: 403

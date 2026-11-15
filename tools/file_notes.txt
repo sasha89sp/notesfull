@@ -61,3 +61,7 @@ import_formats.dart | notes | Реестр форматов импорта (JEX,
 import_model.dart | notes | Промежуточная заметка импорта (ImpNote) и запись её в хранилище (commitImport)
 import_parsers.dart | notes | Разбор форматов импорта в фоновом изоляте (impParse): Markdown, Obsidian, HTML, TXT, Evernote ENEX
 md5.dart | core | MD5 для сопоставления вложений Evernote (не для защиты данных)
+lib/theme.dart | UI | Дизайн-токены AppColors (светлая/тёмная) и buildTheme
+lib/sidebar.dart | UI | Левая панель 260px: новая заметка, мини-календарь, навигация, разделы, папки
+lib/schedule_panel.dart | UI | Правая панель «Расписание» 320px: таймлайн дня, карточки событий
+lib/model_dl.dart | Голос | Загрузка моделей Whisper (прогресс, докачка, зеркало) и блок ModelBox в настройках

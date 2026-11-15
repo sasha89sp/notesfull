@@ -57,3 +57,9 @@
 - Фраза владельца **«перенос»** = финальная контрольная точка: обновить документы, карту, архив и выдать стартовое сообщение для нового чата.
 - Описания файлов для карты — `tools/file_notes.txt`; при добавлении файла дописать строку.
 - Упаковка архива: `rm -rf /home/claude/out/mysecure_notes && mkdir -p /home/claude/out/mysecure_notes && cp -a <проект>/. /home/claude/out/mysecure_notes/ && python3 -c "import shutil;shutil.make_archive('<путь>/mysecure_notes_full','zip','/home/claude/out','mysecure_notes')"` (внутри архива папка `mysecure_notes/`).
+
+
+## Состояние 2026-11-15
+Редизайн Noteplan: theme.dart, sidebar.dart, schedule_panel.dart подключены в shell.dart (desktop). Не проверено CI с архива 23:56 и далее — первым делом посмотреть сборку.
+
+Дополнение 2026-11-15 (позже): настройки общей папки, кэш MKCOL, настройки по папкам. Проверить CI.

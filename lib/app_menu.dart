@@ -109,6 +109,11 @@ class AppMenu extends StatelessWidget {
           ], child: const Text('Файл')),
           SubmenuButton(menuChildren: [
             _item('Вид «Телефон»', h.toPhoneView),
+            _item(s.settings.showSchedule ? 'Скрыть «Расписание»' : 'Показать «Расписание»', () {
+              s.settings.showSchedule = !s.settings.showSchedule;
+              s.saveSettings();
+              s.refresh();
+            }),
             _item(dark ? 'Светлая тема' : 'Тёмная тема', h.toggleTheme),
             const Divider(height: 1),
             _item('Увеличить масштаб', () => _zoom(0.1), key: 'Ctrl++'),

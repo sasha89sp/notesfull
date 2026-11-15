@@ -1,20 +1,27 @@
 import 'package:flutter/material.dart';
+import 'theme.dart';
 
 class Pal {
   static bool dark(BuildContext c) => Theme.of(c).brightness == Brightness.dark;
-  static Color border(BuildContext c) =>
-      dark(c) ? const Color(0xFF38383A) : const Color(0xFFC6C6C8);
-  static Color card(BuildContext c) =>
-      dark(c) ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7);
-  static Color card3(BuildContext c) =>
-      dark(c) ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA);
-  static Color secondary(BuildContext c) => const Color(0xFF8E8E93);
+  static AppColors _c(BuildContext c) => AppColors.of(Theme.of(c).brightness);
+  static Color border(BuildContext c) => _c(c).divider;
+  static Color card(BuildContext c) => _c(c).panel;
+  static Color card3(BuildContext c) => _c(c).sidebar;
+  static Color secondary(BuildContext c) => _c(c).text2;
+  static Color muted(BuildContext c) => _c(c).muted;
+  static Color accent(BuildContext c) => _c(c).accent;
+  static Color sidebar(BuildContext c) => _c(c).sidebar;
+  static Color panel(BuildContext c) => _c(c).panel;
+  static Color hover(BuildContext c) => _c(c).hover;
+  static Color tagFg(BuildContext c) => _c(c).tagFg;
+  static Color tagBg(BuildContext c) => _c(c).tagBg;
+  static Color linkBg(BuildContext c) => _c(c).linkBg;
   static Color success(BuildContext c) =>
-      dark(c) ? const Color(0xFF30D158) : const Color(0xFF34C759);
+      dark(c) ? const Color(0xFF34D399) : const Color(0xFF059669);
   static Color warn(BuildContext c) =>
-      dark(c) ? const Color(0xFFFF9F0A) : const Color(0xFFFF9500);
+      dark(c) ? const Color(0xFFFBBF24) : const Color(0xFFD97706);
   static Color error(BuildContext c) =>
-      dark(c) ? const Color(0xFFFF453A) : const Color(0xFFFF3B30);
+      dark(c) ? const Color(0xFFF87171) : const Color(0xFFDC2626);
 }
 
 const List<int> kTagColors = [
@@ -29,7 +36,7 @@ Color tagColor(String tag) {
   return Color(kTagColors[h % kTagColors.length]);
 }
 
-/// Карточка в стиле Apple: скругление 12, граница 0.5, без теней.
+/// Карточка: скругление 10, тонкая граница, едва заметная тень.
 class AppCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets padding;
@@ -50,14 +57,17 @@ class AppCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 5),
       decoration: BoxDecoration(
         color: Pal.card(context),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Pal.border(context), width: 0.5),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Pal.border(context)),
+        boxShadow: Pal.dark(context)
+            ? null
+            : const [BoxShadow(color: Color(0x0A000000), blurRadius: 2, offset: Offset(0, 1))],
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           onTap: onTap,
           onLongPress: onLongPress,
           child: Padding(padding: padding, child: child),
@@ -116,20 +126,20 @@ class TagChip extends StatelessWidget {
   const TagChip(this.tag, {super.key, this.onDelete, this.onTap});
   @override
   Widget build(BuildContext context) {
-    final c = tagColor(tag);
+    final c = Pal.tagFg(context);
     return Padding(
       padding: const EdgeInsets.only(right: 6, bottom: 4),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(4),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
-            color: c.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(12),
+            color: Pal.tagBg(context),
+            borderRadius: BorderRadius.circular(4),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text('#$tag', style: TextStyle(color: c, fontSize: 13)),
+            Text('#$tag', style: TextStyle(color: c, fontSize: 12.5)),
             if (onDelete != null) ...[
               const SizedBox(width: 4),
               InkWell(

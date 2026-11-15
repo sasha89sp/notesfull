@@ -2,7 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'backup.dart';
+import 'sidebar.dart';
+import 'schedule_panel.dart';
 import 'app_menu.dart';
 import 'backup_page.dart';
 import 'bg_sync.dart';
@@ -48,6 +51,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   String? _tag;
   String _folder = ''; // папка, открытая из «Избранного»
   int _folderSeq = 0;
+  bool _navShown = true;
   Timer? _timer;
   Timer? _tick;
   Timer? _sched;
@@ -131,6 +135,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         }
         _tab = m;
         _visited.add(m);
+        if (m == 'shared' && s.settings.sharedOnOpen && s.settings.groups.isNotEmpty) {
+          s.settings.sharedLast = 0;
+          Future<void>.microtask(() => s.syncAll(auto: true));
+        }
       });
 
   static const _icons = {
@@ -357,78 +365,6 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     );
   }
 
-  /// Компактная левая панель для компьютера: модули, корзина, настройки, тема, вид.
-  Widget _rail() {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final cs = Theme.of(context).colorScheme;
-    final mods = _mods.where((m) => !(m == 'home' && _on('notes'))).toList();
-    Widget item(IconData icon, String label, VoidCallback f, {bool sel = false}) => InkWell(
-          onTap: f,
-          child: Container(
-            color: sel ? cs.primary.withOpacity(0.14) : null,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(children: [
-              Icon(icon, size: 18, color: sel ? cs.primary : null),
-              const SizedBox(width: 10),
-              Expanded(
-                  child: Text(label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 13, fontWeight: sel ? FontWeight.w600 : FontWeight.w400))),
-            ]),
-          ),
-        );
-    return SizedBox(
-      width: 168,
-      child: Container(
-        color: dark ? const Color(0xFF1C1C1E) : const Color(0xFFF7F7FA),
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-            child: Row(children: [
-              Avatar(s.author, s.settings.color, radius: 13),
-              const SizedBox(width: 8),
-              Expanded(
-                  child: Text(s.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
-            ]),
-          ),
-          for (final m in mods)
-            item(_icons[m]!, _names[m]!, () {
-              if (m == 'notes') {
-                setState(() {
-                  _folder = '';
-                  _folderSeq++;
-                  _tag = null;
-                });
-              }
-              _go(m);
-            }, sel: _tab == m || (m == 'notes' && _tab == 'home')),
-          const Spacer(),
-          const Divider(height: 1),
-          if (_on('notes'))
-            item(Icons.delete_outline, 'Корзина', () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => TrashScreen(store: s)))),
-          item(Icons.settings_outlined, 'Настройки', _openSettings),
-          item(dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-              dark ? 'Светлая тема' : 'Тёмная тема', () {
-            s.settings.theme = dark ? 'light' : 'dark';
-            s.saveSettings();
-            widget.onTheme(s.settings.theme);
-          }),
-          item(Icons.smartphone, 'Вид: телефон', () {
-            s.settings.uiMode = 'mobile';
-            s.saveSettings();
-            s.refresh();
-          }),
-          const SizedBox(height: 6),
-        ]),
-      ),
-    );
-  }
-
   /// Кнопка синхронизации в правом верхнем углу: во время работы нажатие останавливает.
   Widget _syncButton() {
     if (s.syncing) {
@@ -621,9 +557,42 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                   const Divider(height: 1),
                   Expanded(
                     child: Row(children: [
-                      _rail(),
-                      const VerticalDivider(width: 1),
+                      Sidebar(
+                        s: s,
+                        tab: _tab,
+                        mods: _mods,
+                        names: _names,
+                        icons: _icons,
+                        go: _go,
+                        newNote: _newNote,
+                        settings: _openSettings,
+                        trash: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => TrashScreen(store: s))),
+                        toggleTheme: () {
+                          final dark = Theme.of(context).brightness == Brightness.dark;
+                          s.settings.theme = dark ? 'light' : 'dark';
+                          s.saveSettings();
+                          widget.onTheme(s.settings.theme);
+                        },
+                        toPhoneView: () {
+                          s.settings.uiMode = 'mobile';
+                          s.saveSettings();
+                          s.refresh();
+                        },
+                        openFolder: (id) {
+                          setState(() {
+                            _folder = id;
+                            _folderSeq++;
+                            _tag = null;
+                          });
+                          _go('notes');
+                        },
+                      ),
                       Expanded(child: _body()),
+                      if (s.settings.showSchedule && MediaQuery.of(context).size.width >= 1180) ...[
+                        VerticalDivider(width: 1, color: Pal.border(context)),
+                        SchedulePanel(store: s),
+                      ],
                     ]),
                   ),
                 ]),
@@ -640,18 +609,38 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                 ],
               ),
               drawer: _drawer(),
-              body: Stack(children: [
-                _body(),
-                if (_tab == 'home' && _on('notes')) Fab(onPressed: _quickCreate),
-              ]),
-              bottomNavigationBar: NavigationBar(
-                selectedIndex: nav.contains(_tab) ? nav.indexOf(_tab) : 0,
-                onDestinationSelected: (i) => _go(nav[i]),
-                destinations: [
-                  for (final m in nav)
-                    NavigationDestination(icon: Icon(_icons[m]), label: _names[m]!),
-                ],
+              body: NotificationListener<UserScrollNotification>(
+                onNotification: (n) {
+                  if (s.settings.navMode == 'auto' && n.metrics.axis == Axis.vertical) {
+                    final show = n.direction != ScrollDirection.reverse;
+                    if (n.direction != ScrollDirection.idle && show != _navShown) {
+                      setState(() => _navShown = show);
+                    }
+                  }
+                  return false;
+                },
+                child: Stack(children: [
+                  _body(),
+                  if (_tab == 'home' && _on('notes')) Fab(onPressed: _quickCreate),
+                ]),
               ),
+              bottomNavigationBar: s.settings.navMode == 'hide'
+                  ? null
+                  : ClipRect(
+                      child: AnimatedAlign(
+                        duration: const Duration(milliseconds: 180),
+                        alignment: Alignment.topCenter,
+                        heightFactor: (s.settings.navMode == 'auto' && !_navShown) ? 0.0 : 1.0,
+                        child: NavigationBar(
+                          selectedIndex: nav.contains(_tab) ? nav.indexOf(_tab) : 0,
+                          onDestinationSelected: (i) => _go(nav[i]),
+                          destinations: [
+                            for (final m in nav)
+                              NavigationDestination(icon: Icon(_icons[m]), label: _names[m]!),
+                          ],
+                        ),
+                      ),
+                    ),
             );
           },
         );

@@ -321,7 +321,7 @@ class _MdDocState extends State<MdDoc> {
     var last = 0;
     final link = Theme.of(context).colorScheme.primary;
     for (final m in _inl.allMatches(s)) {
-      if (m.start > last) spans.add(TextSpan(text: s.substring(last, m.start), style: st));
+      if (m.start > last) spans.addAll(_plain(s.substring(last, m.start), st));
       last = m.end;
       if (m.group(1) != null) {
         spans.add(TextSpan(text: m.group(1), style: st));
@@ -379,8 +379,35 @@ class _MdDocState extends State<MdDoc> {
         spans.add(TextSpan(text: '\n', style: st));
       }
     }
-    if (last < s.length) spans.add(TextSpan(text: s.substring(last), style: st));
+    if (last < s.length) spans.addAll(_plain(s.substring(last), st));
     return spans;
+  }
+
+  static final RegExp _tagRe =
+      RegExp(r'(^|\s)(#[\p{L}][\p{L}\p{N}_/\-]*)|(\[\[[^\]\n]+\]\])', unicode: true);
+
+  /// Обычный текст: #теги — янтарные, [[ссылки]] — индиго.
+  List<InlineSpan> _plain(String t, TextStyle st) {
+    if (!t.contains('#') && !t.contains('[[')) return [TextSpan(text: t, style: st)];
+    final out = <InlineSpan>[];
+    var last = 0;
+    for (final m in _tagRe.allMatches(t)) {
+      final tag = m.group(2);
+      final start = tag != null ? m.start + m.group(1)!.length : m.start;
+      if (start > last) out.add(TextSpan(text: t.substring(last, start), style: st));
+      if (tag != null) {
+        out.add(TextSpan(
+            text: tag, style: st.copyWith(color: Pal.tagFg(context), backgroundColor: Pal.tagBg(context))));
+      } else {
+        final raw = m.group(3)!;
+        out.add(TextSpan(
+            text: raw.substring(2, raw.length - 2),
+            style: st.copyWith(color: Pal.accent(context), backgroundColor: Pal.linkBg(context))));
+      }
+      last = m.end;
+    }
+    if (last < t.length) out.add(TextSpan(text: t.substring(last), style: st));
+    return out;
   }
 
   void _toggle(MdItem it) {
@@ -467,7 +494,7 @@ class _MdDocState extends State<MdDoc> {
     final done = it.checked == true;
     final st = done
         ? base.copyWith(
-            decoration: TextDecoration.lineThrough, color: Pal.secondary(context))
+            decoration: TextDecoration.lineThrough, color: Pal.muted(context))
         : base;
     Widget lead;
     if (it.checked != null) {

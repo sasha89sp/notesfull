@@ -501,7 +501,7 @@ class _EditorScreenState extends State<EditorScreen> {
                       border: InputBorder.none, hintText: 'Пункт'),
                   style: TextStyle(
                     decoration: item.done ? TextDecoration.lineThrough : null,
-                    color: item.done ? Pal.secondary(context) : null,
+                    color: item.done ? Pal.muted(context) : null,
                   ),
                   onChanged: (v) {
                     item.text = v;

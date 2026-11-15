@@ -24,6 +24,12 @@ const List<String> kMonthsNom = [
   'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
 ];
 const List<String> kWeekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const List<String> kWeekdaysFull = [
+  'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'
+];
+
+/// «Воскресенье, 15 ноября»
+String fmtDayLong(DateTime d) => '${kWeekdaysFull[d.weekday - 1]}, ${d.day} ${kMonths[d.month - 1]}';
 
 String fmtDate(int ms) {
   final d = DateTime.fromMillisecondsSinceEpoch(ms);
@@ -855,11 +861,19 @@ class Settings {
   bool bkAuto; // после создания бэкапа загружать его на сервер
   bool bkDaily; // делать бэкап сам раз в сутки
   int bkKeep; // сколько последних копий хранить
+  bool showSchedule; // панель «Расписание» справа (компьютерный вид)
   bool syncOnStart; // синхронизировать при запуске
   bool syncOnResume; // при возврате в приложение
   bool syncOnNet; // при появлении сети
   bool syncOnChange; // через 5 с после правок
   int syncEvery; // периодически, минуты (0 — выключено)
+  String txModelSrc; // источник моделей Whisper: hf | mirror
+  String stripPos; // строка статуса: bottom | top | sync (снизу, только при синхронизации) | off
+  String navMode; // нижнее меню (телефон): show | auto (прячется при прокрутке вниз) | hide
+  int sharedEvery; // общие папки по расписанию, минуты (0 — только вручную)
+  bool sharedComments; // комментарии общих папок при авто-синхронизации
+  bool sharedOnOpen; // обновлять общую папку при её открытии
+  int sharedLast;
   int gcalEvery; // Google Календарь по расписанию, минуты (0 — только вручную)
   int gcalLast; // когда Google Календарь синхронизировался в последний раз
   bool bgSync; // фоновая синхронизация Android (WorkManager)
@@ -925,11 +939,19 @@ class Settings {
     this.bkPhoneEvery = 0,
     this.bgSync = false,
     this.syncOnStart = true,
+    this.showSchedule = true,
     this.syncOnResume = false,
     this.syncOnNet = false,
     this.syncOnChange = true,
     this.syncEvery = 30,
     this.gcalEvery = 120,
+    this.txModelSrc = 'hf',
+    this.stripPos = 'bottom',
+    this.navMode = 'show',
+    this.sharedEvery = 15,
+    this.sharedComments = true,
+    this.sharedOnOpen = false,
+    this.sharedLast = 0,
     this.gcalLast = 0,
     this.bkPhoneLast = 0,
     this.bkLast = 0,
@@ -1001,11 +1023,19 @@ class Settings {
         'bkPhoneEvery': bkPhoneEvery,
         'bgSync': bgSync,
         'syncOnStart': syncOnStart,
+        'showSchedule': showSchedule,
         'syncOnResume': syncOnResume,
         'syncOnNet': syncOnNet,
         'syncOnChange': syncOnChange,
         'syncEvery': syncEvery,
         'gcalEvery': gcalEvery,
+        'txModelSrc': txModelSrc,
+        'stripPos': stripPos,
+        'navMode': navMode,
+        'sharedEvery': sharedEvery,
+        'sharedComments': sharedComments,
+        'sharedOnOpen': sharedOnOpen,
+        'sharedLast': sharedLast,
         'gcalLast': gcalLast,
         'bkPhoneLast': bkPhoneLast,
         'bkLast': bkLast,
@@ -1066,11 +1096,19 @@ class Settings {
       bkPhoneEvery: (j['bkPhoneEvery'] ?? 0) as int,
       bgSync: (j['bgSync'] ?? false) as bool,
       syncOnStart: (j['syncOnStart'] ?? true) as bool,
+      showSchedule: (j['showSchedule'] ?? true) as bool,
       syncOnResume: (j['syncOnResume'] ?? false) as bool,
       syncOnNet: (j['syncOnNet'] ?? false) as bool,
       syncOnChange: (j['syncOnChange'] ?? true) as bool,
       syncEvery: (j['syncEvery'] ?? 30) as int,
       gcalEvery: (j['gcalEvery'] ?? 120) as int,
+      txModelSrc: (j['txModelSrc'] ?? 'hf') as String,
+      stripPos: (j['stripPos'] ?? 'bottom') as String,
+      navMode: (j['navMode'] ?? 'show') as String,
+      sharedEvery: (j['sharedEvery'] ?? 15) as int,
+      sharedComments: (j['sharedComments'] ?? true) as bool,
+      sharedOnOpen: (j['sharedOnOpen'] ?? false) as bool,
+      sharedLast: (j['sharedLast'] ?? 0) as int,
       gcalLast: (j['gcalLast'] ?? 0) as int,
       bkPhoneLast: (j['bkPhoneLast'] ?? 0) as int,
       bkLast: (j['bkLast'] ?? 0) as int,

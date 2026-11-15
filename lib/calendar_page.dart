@@ -16,8 +16,11 @@ class CalendarPage extends StatefulWidget {
 }
 
 class _CalendarPageState extends State<CalendarPage> {
-  String _view = 'month'; // month | week | day | list
-  DateTime _focus = DateTime.now();
+  // вид и выбранный день хранятся в Store: их же меняют мини-календарь и боковая панель
+  String get _view => s.calView; // month | week | day | list | year
+  set _view(String v) => s.setViewDay(s.viewDay, view: v);
+  DateTime get _focus => s.viewDay;
+  set _focus(DateTime d) => s.setViewDay(d);
 
   Store get s => widget.store;
 
@@ -25,6 +28,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
   // Индекс «день → события» строится один раз за перерисовку (а не на каждую ячейку).
   Map<int, List<CalEvent>> _idx = {};
+  int _idxSig = -1;
 
   int _key(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
 
@@ -73,6 +77,9 @@ class _CalendarPageState extends State<CalendarPage> {
         case 'week':
           _focus = _focus.add(Duration(days: 7 * dir));
           break;
+        case 'year':
+          _focus = DateTime(_focus.year + dir, _focus.month, 1);
+          break;
         default:
           _focus = _focus.add(Duration(days: dir));
       }
@@ -89,6 +96,8 @@ class _CalendarPageState extends State<CalendarPage> {
         return '${m.day} ${kMonths[m.month - 1]} — ${e.day} ${kMonths[e.month - 1]}';
       case 'day':
         return fmtDay(_focus);
+      case 'year':
+        return '${_focus.year}';
       default:
         return 'Предстоящие';
     }
@@ -268,6 +277,70 @@ class _CalendarPageState extends State<CalendarPage> {
         children: [_dayList(_focus)],
       );
 
+  /// Год: 12 мини-месяцев; день с событиями выделен, нажатие открывает месяц.
+  Widget _year() {
+    final today = _d(DateTime.now());
+    final acc = Pal.accent(context);
+    Widget month(int m) {
+      final first = DateTime(_focus.year, m, 1);
+      final lead = first.weekday - 1;
+      final days = DateTime(_focus.year, m + 1, 0).day;
+      final cells = <Widget>[];
+      for (var i = 0; i < 42; i++) {
+        final n = i - lead + 1;
+        if (n < 1 || n > days) {
+          cells.add(const SizedBox.shrink());
+          continue;
+        }
+        final day = DateTime(_focus.year, m, n);
+        final isToday = sameDay(day, today);
+        final has = _on(day).isNotEmpty;
+        cells.add(InkWell(
+          onTap: () => s.setViewDay(day, view: 'day'),
+          child: Container(
+            margin: const EdgeInsets.all(1),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+                color: isToday ? acc : null, shape: BoxShape.circle),
+            child: Text('$n',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: has ? FontWeight.w700 : FontWeight.w400,
+                    color: isToday
+                        ? Colors.white
+                        : has
+                            ? acc
+                            : Pal.secondary(context))),
+          ),
+        ));
+      }
+      return Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          InkWell(
+            onTap: () => s.setViewDay(DateTime(_focus.year, m, 1), view: 'month'),
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(kMonthsNom[m - 1],
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+          ),
+          Expanded(child: GridView.count(crossAxisCount: 7, physics: const NeverScrollableScrollPhysics(), children: cells)),
+        ]),
+      );
+    }
+
+    return LayoutBuilder(builder: (context, c) {
+      final cols = c.maxWidth >= 900 ? 4 : c.maxWidth >= 560 ? 3 : 2;
+      return GridView.count(
+        crossAxisCount: cols,
+        childAspectRatio: 1.05,
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 90),
+        children: [for (var m = 1; m <= 12; m++) month(m)],
+      );
+    });
+  }
+
   Widget _list() {
     final today = _d(DateTime.now());
     final out = <Widget>[];
@@ -301,7 +374,15 @@ class _CalendarPageState extends State<CalendarPage> {
     return AnimatedBuilder(
       animation: s,
       builder: (context, _) {
-        _idx = _buildIndex();
+        // индекс «день → события» пересобираем только когда события менялись
+        var sig = s.events.length;
+        for (final e in s.events) {
+          sig = (sig * 31 + e.updatedAt + (e.deleted ? 7 : 0)) & 0x3fffffffffffffff;
+        }
+        if (sig != _idxSig) {
+          _idx = _buildIndex();
+          _idxSig = sig;
+        }
         Widget body;
         switch (_view) {
           case 'week':
@@ -312,6 +393,9 @@ class _CalendarPageState extends State<CalendarPage> {
             break;
           case 'list':
             body = _list();
+            break;
+          case 'year':
+            body = _year();
             break;
           default:
             body = _month();
@@ -327,6 +411,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     ButtonSegment(value: 'month', label: Text('Месяц')),
                     ButtonSegment(value: 'week', label: Text('Неделя')),
                     ButtonSegment(value: 'day', label: Text('День')),
+                    ButtonSegment(value: 'year', label: Text('Год')),
                     ButtonSegment(value: 'list', label: Text('Список')),
                   ],
                   selected: {_view},
