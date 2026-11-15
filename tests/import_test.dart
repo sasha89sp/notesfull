@@ -9,6 +9,7 @@ import 'package:mysecure_notes/pass_io.dart';
 void main() {
   passwordIoTests();
   icsRawTests();
+  icsRruleTests();
   late Directory tmp;
   setUp(() async => tmp = await Directory.systemTemp.createTemp('asrbox_imp_'));
   tearDown(() async => tmp.delete(recursive: true));
@@ -132,5 +133,30 @@ void icsRawTests() {
       expect(e.calId, 'c1');
       expect(e.title, 'День, рождения');
     });
+  });
+}
+
+void icsRruleTests() {
+  test('RRULE: еженедельно по ПН и СР, COUNT и EXDATE', () {
+    final m = {
+      'DTSTART': '20261102T090000',
+      'RRULE': 'FREQ=WEEKLY;BYDAY=MO,WE;COUNT=4',
+      'EXDATE': '20261104T090000',
+    };
+    final l = IcsRaw.occurrences(m, DateTime(2026, 11, 1), DateTime(2027, 1, 1));
+    // 2.11 (пн), 4.11 (ср, исключён), 9.11 (пн), 11.11 (ср) — всего 4 вхождения, одно исключено
+    expect(l.map((d) => d.day).toList(), [2, 9, 11]);
+  });
+  test('RRULE: ежемесячно и ежегодно', () {
+    final mo = IcsRaw.occurrences({'DTSTART': '20260115T100000', 'RRULE': 'FREQ=MONTHLY;COUNT=3'}, DateTime(2026, 1, 1), DateTime(2027, 1, 1));
+    expect(mo.map((d) => d.month).toList(), [1, 2, 3]);
+    final yr = IcsRaw.occurrences({'DTSTART': '20260301T100000', 'RRULE': 'FREQ=YEARLY'}, DateTime(2026, 1, 1), DateTime(2028, 12, 31));
+    expect(yr.map((d) => d.year).toList(), [2026, 2027, 2028]);
+  });
+  test('VALARM сохраняется при пересборке', () {
+    const src = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:z\r\nDTSTART:20261115T100000Z\r\nBEGIN:VALARM\r\nTRIGGER:-PT10M\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+    final out = IcsRaw.build(IcsRaw.parse(src));
+    expect(out.contains('BEGIN:VALARM'), isTrue);
+    expect(out.contains('TRIGGER:-PT10M'), isTrue);
   });
 }

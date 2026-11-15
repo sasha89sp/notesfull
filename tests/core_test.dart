@@ -162,7 +162,7 @@ void main() {
         Block(type: 'file', meta: {'att': 'a1', 'name': 'doc.txt'}),
       ];
     final tar = Jex.export([f1, f2], [n], {'a1': utf8.encode('hello')});
-    final p = Jex.parse(tar);
+    final p = JexParse.parse(tar);
     expect(p.folders.length, 2);
     final child = p.folders.firstWhere((f) => f.title == 'Идеи');
     final parent = p.folders.firstWhere((f) => f.title == 'Работа');
@@ -176,7 +176,7 @@ void main() {
     expect(p.resources.length, 1);
     expect(utf8.decode(p.resources.values.first.bytes), 'hello');
 
-    final blocks = Jex.toBlocks(jn.body, (rid) =>
+    final blocks = JexParse.toBlocks(jn.body, (rid) =>
         p.resources.containsKey(rid) ? Block(type: 'file', meta: {'att': 'x'}) : null);
     expect(blocks.any((b) => b.type == 'checklist' && b.items.length == 2), true);
     expect(blocks.any((b) => b.type == 'file'), true);

@@ -85,3 +85,35 @@
 - IcalSub (type 'url' в CalDef): GET ссылки, события id 'sub<хэш календаря>_ics<хэш UID>', исчезнувшие помечаются deleted; вызывается из Store.syncAll (раз в 2 ч) и кнопкой в настройках.
 - Google: _toGoogle — только main/google; события локальных календарей и подписок не отправляются.
 - Settings.platform + Store._adaptToPlatform; docs/SETTINGS.md генерируется из Settings.toJson и Accounts._skip (пересоздавать при добавлении полей).
+
+## 2026-11-15 (пакет 3б)
+- Телефон: заголовок AppBar 20/600, карточка заметки 16/14, дата мелким моно-шрифтом; «Ближайшее» учитывает видимость календарей. Полная телефонная вёрстка Noteplan не делалась (ждём скриншоты).
+
+## 2026-11-15 (пакет 4)
+- Модуль 'voice' («Диктовка»): VoicePage, по умолчанию выключен (Settings.modules['voice']=false); запись WAV 16 кГц → LocalTx/Transcriber → Clipboard. Не входит в нижнее меню (_navMods). Глобальная горячая клавиша, модуль Windows (переназначение клавиш) и RocketDock — требуют плагинов (hotkey_manager/win32), ждут разрешения владельца.
+
+## 2026-11-15 (пакет 5 — плагины, разрешение получено: «делай остальное»)
+- Windows-системные функции вынесены в вариант, как Whisper: lib/winsys.dart (заглушка) ↔ variants/win32/winsys.dart (пакеты win32 ^5.5.0 + ffi ^2.1.0). Workflow windows: попытка 1 (Whisper+win32) → fallback 1 (только win32) → fallback 2 (без плагинов). Android/Linux/macOS всегда используют заглушку.
+- Переназначение: изолят с WH_KEYBOARD_LL, правила [откуда, куда…] (коды VK); своё нажатие помечается dwExtraInfo=0x41535242; исходное поглощается (return 1). Настройка списка правил: Settings.remaps/remapOn, UI в WinPage.
+- Диктовка: Dictation (ChangeNotifier-синглтон); глобальная комбинация опрашивается таймером 40 мс (GetAsyncKeyState), настройки Settings.dictGlobal/dictKeys.
+- Док: DockMode.enter/exit через window_manager (без новых пакетов); в main.dart приложение скрывается Offstage в Stack, поверх DockView. Все настройки дока и Windows-модуля локальные (Accounts._skip).
+- Риски: код win32 писался без возможности компиляции (API win32 5.x по памяти) — при падении CI откатится на заглушку; присылайте лог.
+
+## 2026-11-15 (пакет 6)
+- IcsRaw.occurrences: раскрытие RRULE (DAILY/WEEKLY/MONTHLY/YEARLY, INTERVAL, COUNT, UNTIL, BYDAY, EXDATE) для подписок iCal на окно −30…+400 дней; вложенные компоненты VEVENT (VALARM) хранятся в ключе '#nested' и пересобираются без потерь; тесты в tests/import_test.dart.
+- Settings._drop: выпадающий список в Expanded(flex 6) с isExpanded и многоточием — длинные подписи не вылезают на телефоне.
+
+## Меню «Правка» (2026-11-15)
+- lib/edit_menu.dart (пункты как в Joplin), lib/edit_cmd.dart (последнее активное поле через слушатель FocusManager + реестр ActiveMd), lib/md_lines.dart (строчные операции). MdOps.lineRange стал публичным.
+- Копировать/вырезать/вставить/выделить всё — через EditableTextState; форматирование и строчные операции — только для активного MdTextBlock (EditCmd.md).
+- Не сделано: «Вставить как Markdown» (HTML→MD) и «Вставить рисунок» — пункты отключены. Поиск в заметке — диалог «следующее вхождение»; F6/Ctrl+F как горячие клавиши не привязаны (только подписи).
+- Код не компилировался; проверить в CI.
+- ПРАВИЛО «файлы ≤300 строк» на сегодня НЕ соблюдается старым кодом (25 файлов >300; крупнейшие settings_screen 1373, models 1257, pass_page 1059, store 1021). Новые файлы соблюдают. Рефакторинг — в ROADMAP.
+
+## Правило «файл ≤ 300 строк» выполнено (2026-11-15)
+- Проверка: `python3 tools/check_limit.py`. Новые файлы тоже должны укладываться.
+- Большие файлы разрезаны через `part` / `part of 'основной.dart'`: основной файл (с импортами) + `<имя>_2.dart`, `_3`… Импорты — только в основном файле. Все части — одна библиотека, приватные имена видны везде.
+- Большие классы (State, Store, Settings): поля, конструкторы и переопределения остались в классе, остальные методы вынесены в `extension Ext<Класс>N on <Класс>` в частях. Статические члены остались в классе; ссылки на них в вынесенных методах переписаны на `Класс.имя`. Предупреждения линтера protected_member (setState/notifyListeners в extension) — ожидаемы, на сборку не влияют.
+- Классы только со статикой разделены на несколько классов: SyncService → SyncService/SyncScopes/SyncChat; Jex → Jex/JexParse/JexIo; Groups → Groups/GroupsInvite; GoogleCal → GoogleCal/GoogleSync. Все вызовы (lib, tests) переписаны автоматически: `Jex.parse` → `JexParse.parse`, `SyncService.runPasswords` → `SyncChat.runPasswords`, `Groups.join/makeInvite/encode/parseInvite` → `GroupsInvite.*`, `GoogleCal.sync` → `GoogleSync.sync`.
+- _SettingsScreenState._allWidgets разбит на _widgetsA..D (settings_screen_5/7/8/9).
+- РЕФАКТОРИНГ НЕ КОМПИЛИРОВАЛСЯ. Первым делом проверить CI; если ошибка «undefined name/method» — скорее всего пропущена ссылка на статический член или вынесенный метод.

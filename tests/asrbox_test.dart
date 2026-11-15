@@ -114,9 +114,9 @@ void main() {
         id: 'g1', name: 'Семья', url: 'https://dav.example', user: 'u', pass: 'p',
         folder: '/Shared', key: key, owner: 'o1');
     for (final enc in [false, true]) {
-      final text = await Groups.encode(g, '13112026200510', 'own', encrypted: enc);
+      final text = await GroupsInvite.encode(g, '13112026200510', 'own', encrypted: enc);
       expect(text.contains('\n'), isFalse);
-      final r = await Groups.parseInvite(text);
+      final r = await GroupsInvite.parseInvite(text);
       expect(r.url, g.url);
       expect(r.user, 'u');
       expect(r.pass, 'p');
@@ -125,7 +125,7 @@ void main() {
       expect(r.invId, '13112026200510');
       expect(r.rights, 'own');
     }
-    final enc = await Groups.encode(g, '13112026200510', 'own', encrypted: true);
+    final enc = await GroupsInvite.encode(g, '13112026200510', 'own', encrypted: true);
     expect(enc.contains('https://dav.example'), isFalse);
     expect(enc.contains('"p"'), isFalse);
   });

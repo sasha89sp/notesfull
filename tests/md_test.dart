@@ -106,7 +106,7 @@ void main() {
 
   group('Joplin', () {
     test('HTML → Markdown', () {
-      final md = Jex.htmlToMd('<h2>Т</h2><p>a <b>b</b> <a href="http://x">l</a></p><ul><li>1</li><li>2</li></ul>');
+      final md = JexParse.htmlToMd('<h2>Т</h2><p>a <b>b</b> <a href="http://x">l</a></p><ul><li>1</li><li>2</li></ul>');
       expect(md, contains('## Т'));
       expect(md, contains('**b**'));
       expect(md, contains('[l](http://x)'));
@@ -121,7 +121,7 @@ void main() {
           Block(type: 'text', content: '# H\n\n- [x] ok\n\n![pic](:/abc123)\n\n| a | b |\n|---|---|\n| 1 | 2 |'),
         ];
       final bytes = Jex.export([], [n], {'abc123': [1, 2, 3]});
-      final p = Jex.parse(bytes);
+      final p = JexParse.parse(bytes);
       expect(p.notes.single.title, 'Заметка');
       expect(p.notes.single.tags, ['тег']);
       expect(p.resources.length, 1);
