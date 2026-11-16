@@ -1,3 +1,4 @@
+// ▸ Блок заметки «Календарь (.ics)»: файл календаря открыт списком, одно событие — одна строка
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';

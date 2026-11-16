@@ -1,3 +1,4 @@
+// ▸ Windows: трей, сворачивание, окно-напоминание
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;

@@ -1,3 +1,4 @@
+// ▸ Встроенный журнал ошибок и событий (AppLog.I.i/e)
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';

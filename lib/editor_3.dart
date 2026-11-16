@@ -1,3 +1,4 @@
+// ▸ Часть editor.dart: Редактор заметки (блоки, меню, экспорт, встраиваемый режим)  [содержит: _ExtEditorScreenState2]
 part of 'editor.dart';
 
 extension _ExtEditorScreenState2 on _EditorScreenState { // режим просмотра (true) или правки (false)
@@ -153,6 +154,7 @@ extension _ExtEditorScreenState2 on _EditorScreenState { // режим прос�
         controller: _ctlFor(b),
         onChanged: _touch,
         onOpenNote: _openNote,
+        showToolbar: false,
       );
     }
 

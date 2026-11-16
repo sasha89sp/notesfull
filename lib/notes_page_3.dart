@@ -1,3 +1,4 @@
+// ▸ Часть notes_page.dart: Список заметок (мобильный вид), главная  [содержит: _ExtNotesListState2]
 part of 'notes_page.dart';
 
 extension _ExtNotesListState2 on _NotesListState {

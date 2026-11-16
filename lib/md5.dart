@@ -1,3 +1,4 @@
+// ▸ MD5 для сопоставления вложений Evernote (не для защиты данных)
 import 'dart:math' as math;
 import 'dart:typed_data';
 

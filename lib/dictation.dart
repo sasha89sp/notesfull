@@ -1,3 +1,4 @@
+// ▸ Диктовка: запись → расшифровка → буфер обмена. Используется страницей «Диктовка» и
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';

@@ -1,3 +1,4 @@
+// ▸ Разбор форматов импорта в фоновом изоляте (impParse): Markdown, Obsidian, HTML, TXT, Evernote ENEX
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';

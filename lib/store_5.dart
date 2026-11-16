@@ -1,3 +1,4 @@
+// ▸ Часть store.dart: Главное хранилище состояния: профили, ключи, заметки, события, чат, сохранение, поиск, блокировки модулей, зап  [содержит: ExtStore4]
 part of 'store.dart';
 
 extension ExtStore4 on Store {
@@ -110,7 +111,7 @@ extension ExtStore4 on Store {
 
   /// [auto] — запуск по расписанию/событию (а не кнопкой): учитывает настройки
   /// «Синхронизация» и не трогает Google Календарь, пока не подошёл срок.
-  Future<void> syncAll({bool auto = false}) async {
+  Future<void> syncAll({bool auto = false, String scope = 'all'}) async {
     if (syncing || key == null) return;
     if (!settings.syncConfigured && !settings.googleConfigured) return;
     if (auto && nowMs() - _lastRun < 60000) return; // не чаще раза в минуту
@@ -128,11 +129,11 @@ extension ExtStore4 on Store {
 
     try {
       if (settings.syncConfigured) {
-        rec.targets.add('WebDAV');
+        rec.targets.add(scope == 'all' ? 'WebDAV' : 'WebDAV · ${const {'notes': 'заметки', 'calendar': 'календарь', 'shared': 'общая папка'}[scope] ?? scope}');
         setProgress('WebDAV: обмен данными…');
         final r = SyncStats();
         try {
-          await SyncService.run(this, r, tok, auto: auto);
+          await SyncService.run(this, r, tok, auto: auto, scope: scope);
         } catch (e, st) {
           if (e is SyncCancelled) rethrow;
           failed = true;
@@ -143,7 +144,7 @@ extension ExtStore4 on Store {
         }
       }
       tok.check();
-      if (settings.googleConfigured && (!auto || _gcalDue())) {
+      if (settings.googleConfigured && (scope == 'all' || scope == 'calendar') && (!auto || _gcalDue())) {
         rec.targets.add('Google Календарь');
         setProgress('Google Календарь…');
         final r = SyncStats();
@@ -161,7 +162,7 @@ extension ExtStore4 on Store {
         }
       }
       tok.check();
-      await IcalSub.syncDue(this); // подписки iCal: раз в 2 часа
+      if (scope == 'all' || scope == 'calendar') await IcalSub.syncDue(this); // подписки iCal: раз в 2 часа
     } on SyncCancelled {
       rec.status = 'cancelled';
       AppLog.I.i('sync', 'Синхронизация отменена пользователем');

@@ -1,3 +1,4 @@
+// ▸ Часть schedule_panel.dart  [содержит: _EventCardState]
 part of 'schedule_panel.dart';
 
 

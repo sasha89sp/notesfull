@@ -1,3 +1,4 @@
+// ▸ SyncService: обмен с сервером (заметки, события, папки, группы, вложения, чат, комментарии, пароли)
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -42,22 +43,24 @@ class SyncService {
     return Dav(st.url, st.user, st.pass);
   }
 
-  static Future<void> run(Store s, SyncStats r, CancelToken tok, {bool auto = false}) async {
+  /// [scope]: all | notes | calendar | shared — синхронизация только одного модуля (кнопка в модуле).
+  static Future<void> run(Store s, SyncStats r, CancelToken tok,
+      {bool auto = false, String scope = 'all'}) async {
+    bool want(String m) => scope == 'all' || scope == m;
     final st = s.settings;
     final dav = remoteOf(st);
     await dav.mkcolAll(root);
     await dav.mkcol('$root/users');
     await dav.mkcol(personalDir);
-    await _settingsSync(dav, s);
-    tok.check();
+    if (scope == 'all') await _settingsSync(dav, s);
     tok.check();
 
     // 1. Заметки (высокий приоритет)
-    await SyncScopes._scope(dav, s, 'personal', personalDir, s.syncKey!, null, r, tok);
+    if (want('notes')) await SyncScopes._scope(dav, s, 'personal', personalDir, s.syncKey!, null, r, tok);
     tok.check();
 
     // 2. События календаря (личные)
-    await SyncScopes._mergeBlob(
+    if (want('calendar')) await SyncScopes._mergeBlob(
       dav,
       '$personalDir/events.enc',
       s.syncKey!,
@@ -71,7 +74,7 @@ class SyncService {
     tok.check();
 
     // 2б. Папки заметок
-    await SyncScopes._mergeBlob(
+    if (want('notes')) await SyncScopes._mergeBlob(
       dav,
       '$personalDir/folders.enc',
       s.syncKey!,
@@ -85,7 +88,7 @@ class SyncService {
     tok.check();
 
     // 2в. Общие папки: у каждой свой WebDAV и ключ; сбой одной не мешает остальным
-    final sharedDue = !auto || _sharedDue(s);
+    final sharedDue = want('shared') && (!auto || _sharedDue(s));
     if (sharedDue && st.groups.isNotEmpty) st.sharedLast = nowMs();
     for (final g in List<Group>.of(st.groups)) {
       tok.check();
@@ -102,7 +105,7 @@ class SyncService {
     tok.check();
 
     // 3. Вложения (низкий приоритет)
-    await SyncChat._attachments(dav, s, r, tok);
+    if (want('notes') || want('shared')) await SyncChat._attachments(dav, s, r, tok);
   }
 
   /// Внутренние настройки (календарь, ключи, модули…) едут вместе с аккаунтом:

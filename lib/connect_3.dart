@@ -1,3 +1,4 @@
+// ▸ Часть connect.dart: Экран подключения хранилища и аккаунта ASRbox (двухуровневая авторизация)  [содержит: _ExtConnectScreenState2]
 part of 'connect.dart';
 
 extension _ExtConnectScreenState2 on _ConnectScreenState {

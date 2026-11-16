@@ -1,3 +1,4 @@
+// ▸ Экран календаря (месяц/список событий и задач)
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'widgets.dart';
 
 part 'calendar_page_2.dart';
 part 'calendar_page_3.dart';
+part 'calendar_desktop.dart';
 
 
 class CalendarPage extends StatefulWidget {
@@ -40,10 +42,11 @@ class _CalendarPageState extends State<CalendarPage> {
           _idx = _buildIndex();
           _idxSig = sig;
         }
+        final desk = s.useDesktop(MediaQuery.of(context).size.width);
         Widget body;
         switch (_view) {
           case 'week':
-            body = _week();
+            body = desk ? _deskWeek() : _week();
             break;
           case 'day':
             body = _day();
@@ -55,7 +58,10 @@ class _CalendarPageState extends State<CalendarPage> {
             body = _year();
             break;
           default:
-            body = _month();
+            body = desk ? _deskMonth() : _month();
+        }
+        if (desk) {
+          return Column(children: [_deskHeader(), Expanded(child: body)]);
         }
         return Stack(children: [
           Column(children: [
@@ -100,7 +106,7 @@ class _CalendarPageState extends State<CalendarPage> {
                 onSelected: (v) {
                   if (v == 'imp') _importIcs();
                   if (v == 'exp') _exportIcs();
-                  if (v == 'sync') s.syncAll();
+                  if (v == 'sync') s.syncAll(scope: 'calendar');
                 },
                 itemBuilder: (_) => const [
                   PopupMenuItem(value: 'imp', child: Text('Импорт .ics')),

@@ -1,3 +1,4 @@
+// ▸ Список заметок (мобильный вид), главная
 import 'package:flutter/material.dart';
 import 'editor.dart';
 import 'event_screen.dart';

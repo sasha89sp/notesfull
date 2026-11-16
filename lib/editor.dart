@@ -1,3 +1,4 @@
+// ▸ Редактор заметки (блоки, меню, экспорт, встраиваемый режим)
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'groups.dart';
 import 'hub.dart';
 import 'ics_block.dart';
 import 'md_editor.dart';
+import 'md_toolbar.dart';
 import 'media.dart';
 import 'models.dart';
 import 'store.dart';
@@ -51,6 +53,7 @@ class _EditorScreenState extends State<EditorScreen> {
     if (n.blocks.isEmpty && n.title.isEmpty) {
       n.blocks.add(Block(type: 'text'));
     }
+    _ensureTail();
     _title = TextEditingController(text: n.title);
     _origTitle = n.title;
     _origBlocks = n.blocks.map((b) => b.copy()).toList();
@@ -120,26 +123,22 @@ class _EditorScreenState extends State<EditorScreen> {
           ),
         ],
       ),
-      body: _view ? _viewBody() : ReorderableListView(
-        header: _header(),
-        footer: n.isGroup
-            ? CommentsView(store: s, note: n)
-            : const SizedBox(height: 16),
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        buildDefaultDragHandles: false,
-        onReorder: (oldIndex, newIndex) {
-          var ni = newIndex;
-          setState(() {
-            if (ni > oldIndex) ni -= 1;
-            final b = n.blocks.removeAt(oldIndex);
-            n.blocks.insert(ni, b);
-          });
-          _touch();
-        },
-        children: [
-          for (var i = 0; i < n.blocks.length; i++) _blockCard(i, n.blocks[i]),
-        ],
-      ),
+      body: _view
+          ? _viewBody()
+          : Column(children: [
+              const SizedBox(height: 4),
+              const MdToolbar(),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                  children: [
+                    _header(),
+                    for (var i = 0; i < n.blocks.length; i++) _blockCard(i, n.blocks[i]),
+                    n.isGroup ? CommentsView(store: s, note: n) : const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            ]),
       bottomNavigationBar: _view ? null : SafeArea(
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,

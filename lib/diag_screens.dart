@@ -1,3 +1,4 @@
+// ▸ История синхронизации и журнал ошибок
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'applog.dart';

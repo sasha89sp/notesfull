@@ -1,3 +1,4 @@
+// ▸ Компьютерный вид заметок в три блока (папки | список | редактор), горячие клавиши
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'ctx_menu.dart';
@@ -193,6 +194,18 @@ class _DesktopNotesState extends State<DesktopNotes> {
               decoration: const InputDecoration(
                   isDense: true, hintText: 'Поиск (Ctrl+F)', prefixIcon: Icon(Icons.search, size: 16)),
             ),
+          ),
+          ListenableBuilder(
+            listenable: widget.store,
+            builder: (_, __) => IconButton(
+                tooltip: widget.store.syncing ? 'Остановить синхронизацию' : 'Синхронизировать заметки',
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.store.syncing
+                    ? widget.store.cancelSync
+                    : () => widget.store.syncAll(scope: 'notes'),
+                icon: widget.store.syncing
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.sync, size: 19)),
           ),
           IconButton(
               tooltip: 'Новая заметка (Ctrl+N)',

@@ -1,3 +1,4 @@
+// ▸ Синхронизация с Google Календарём
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

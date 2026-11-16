@@ -1,3 +1,4 @@
+// ▸ Часть settings_screen.dart: Экран настроек (вид, модули, хранилище, бэкап, шифрование, блокировки, экспорт)  [содержит: _ExtSettingsWidgetsB]
 part of 'settings_screen.dart';
 
 extension _ExtSettingsWidgetsB on _SettingsScreenState {
@@ -37,7 +38,7 @@ extension _ExtSettingsWidgetsB on _SettingsScreenState {
             child: OutlinedButton.icon(
               onPressed: () {
                 st.sharedLast = 0;
-                s.syncAll();
+                s.syncAll(scope: 'shared');
               },
               icon: const Icon(Icons.sync, size: 18),
               label: const Text('Обновить сейчас'),
@@ -99,6 +100,21 @@ extension _ExtSettingsWidgetsB on _SettingsScreenState {
             'low': 'Низкое',
             'orig': 'Исходное',
           }, (v) => st.photoQuality = v),
+
+          const SectionTitle('Синхронизация заметок'),
+          const Hint('Заметки, папки и теги обмениваются с сервером вместе со вложениями. '
+              'Здесь — правила только для заметок; общие правила — в разделе «Синхронизация и бэкап».'),
+          _drop('Вложения (фото, голос, файлы)', st.attMode,
+              const {'wifi': 'Только Wi-Fi', 'any': 'Любая сеть', 'off': 'Не синхронизировать'},
+              (v) => st.attMode = v),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => s.syncAll(scope: 'notes'),
+              icon: const Icon(Icons.sync, size: 18),
+              label: const Text('Синхронизировать заметки'),
+            ),
+          ),
 
           const SectionTitle('Файлы и папки на сервер'),
           FolderSyncBox(s: s),

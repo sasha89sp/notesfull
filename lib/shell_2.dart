@@ -1,3 +1,4 @@
+// ▸ Часть shell.dart: Оболочка: вкладки, боковое меню (телефон), левая панель (компьютер), модули  [содержит: _ExtShellState1]
 part of 'shell.dart';
 
 extension _ExtShellState1 on _ShellState {

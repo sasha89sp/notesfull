@@ -1,3 +1,4 @@
+// ▸ Описание календаря: локальный (хранится только в приложении и в синхронизации ASRbox)
 import 'package:flutter/material.dart';
 import 'ical_sub.dart';
 import 'models.dart';

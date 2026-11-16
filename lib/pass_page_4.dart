@@ -1,3 +1,4 @@
+// ▸ Часть pass_page.dart: Экран паролей: мобильный список и компьютерный вид в три блока, карточка записи  [содержит: _ExtPassPageState3, PassEntryScreen]
 part of 'pass_page.dart';
 
 extension _ExtPassPageState3 on _PassPageState {

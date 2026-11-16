@@ -89,6 +89,41 @@ void passwordIoTests() {
       expect(l.first.password, 'p&1');
       expect(l.first.folder, 'Почта');
     });
+    test('KeePass XML (как в настоящем файле: UUID перед Name): вложенные папки, пустой Value, корзина', () {
+      const xml = '<?xml version="1.0"?><KeePassFile><Meta><RecycleBinUUID>BIN==</RecycleBinUUID></Meta><Root>'
+          '<Group><UUID>ROOT==</UUID><Name>Database</Name><IconID>48</IconID>'
+          '<Entry><UUID>e0</UUID><String><Key>Title</Key><Value>Корень</Value></String>'
+          '<String><Key>Password</Key><Value>r</Value></String></Entry>'
+          '<Group><UUID>G1==</UUID><Name>Работа</Name>'
+          '<Group><UUID>G2==</UUID><Name>Сервера</Name>'
+          '<Entry><UUID>e1</UUID><String><Key>Title</Key><Value>srv</Value></String>'
+          '<String><Key>Notes</Key><Value/></String>'
+          '<String><Key>Password</Key><Value ProtectInMemory="True">pw</Value></String></Entry>'
+          '</Group></Group>'
+          '<Group><UUID>BIN==</UUID><Name>Recycle Bin</Name>'
+          '<Entry><UUID>e2</UUID><String><Key>Title</Key><Value>удалено</Value></String></Entry></Group>'
+          '</Group></Root></KeePassFile>';
+      final l = PassIO.import('x.xml', xml);
+      expect(l.map((e) => e.title).toList(), ['Корень', 'srv']);
+      expect(l[0].folder, '');
+      expect(l[1].folder, 'Работа/Сервера');
+      expect(l[1].password, 'pw');
+      expect(l[1].notes, '');
+    });
+    test('KeePass: экспорт -> импорт сохраняет вложенные папки', () {
+      final e = PassEntry.create()
+        ..title = 'A'
+        ..password = 'x'
+        ..folder = 'Работа/Сервера';
+      final back = PassIO.import('k.xml', PassIO.exportKeepassXml([e]));
+      expect(back.single.folder, 'Работа/Сервера');
+    });
+    test('LastPass CSV: grouping с обратной косой -> папка', () {
+      const csv = 'url,username,password,totp,extra,name,grouping,fav\n'
+          'https://a.b,u,p,,,Сайт,Банки\\Карты,0\n';
+      final l = PassIO.import('lp.csv', csv);
+      expect(l.single.folder, 'Банки/Карты');
+    });
     test('Bitwarden JSON: экспорт -> импорт', () {
       final e = PassEntry.create()
         ..title = 'Site'

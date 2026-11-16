@@ -1,3 +1,4 @@
+// ▸ Часть table_screen.dart: Редактор таблиц  [содержит: _ExtTableScreenState1]
 part of 'table_screen.dart';
 
 extension _ExtTableScreenState1 on _TableScreenState {

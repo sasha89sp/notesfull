@@ -1,3 +1,4 @@
+// ▸ Меню «Правка» верхней панели (как в Joplin). Пункты форматирования
 import 'package:flutter/material.dart';
 import 'edit_cmd.dart';
 

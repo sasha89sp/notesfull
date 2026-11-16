@@ -1,3 +1,4 @@
+// ▸ Часть google.dart: Синхронизация с Google Календарём  [содержит: GoogleSync]
 part of 'google.dart';
 
 class GoogleSync {

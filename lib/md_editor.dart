@@ -1,3 +1,4 @@
+// ▸ Текстовый блок с панелью форматирования
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'edit_cmd.dart';
@@ -17,6 +18,7 @@ class MdTextBlock extends StatefulWidget {
   final VoidCallback onChanged;
   final void Function(String noteId)? onOpenNote;
   final bool viewOnly; // режим просмотра заметки: только отрисованный текст
+  final bool showToolbar; // false: панель общая для всей заметки (MdToolbar)
 
   const MdTextBlock({
     super.key,
@@ -26,6 +28,7 @@ class MdTextBlock extends StatefulWidget {
     required this.onChanged,
     this.onOpenNote,
     this.viewOnly = false,
+    this.showToolbar = true,
   });
 
   @override
@@ -251,6 +254,7 @@ class _MdTextBlockState extends State<MdTextBlock> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (widget.showToolbar)
         Container(
           margin: const EdgeInsets.only(bottom: 4),
           decoration: BoxDecoration(

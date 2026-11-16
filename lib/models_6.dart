@@ -1,3 +1,4 @@
+// ▸ Часть models.dart: Все модели данных: Note, Block, TableData, CalEvent, PassEntry, Group, Settings, ChatMsg  [содержит: ExtSettings1, ChatMsg]
 part of 'models.dart';
 
 extension ExtSettings1 on Settings {

@@ -1,6 +1,28 @@
+// ▸ Часть settings_screen.dart: Экран настроек (вид, модули, хранилище, бэкап, шифрование, блокировки, экспорт)  [содержит: _ExtSettingsWidgetsD]
 part of 'settings_screen.dart';
 
 extension _ExtSettingsWidgetsD on _SettingsScreenState {
+  /// Раскрывающаяся группа кнопок (компактный бэкап/импорт/экспорт).
+  Widget _bkGroup(String title, IconData icon, List<(String, VoidCallback)> items) {
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: EdgeInsets.zero,
+      leading: Icon(icon, size: 20),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      children: [
+        for (final it in items)
+          ListTile(
+            dense: true,
+            visualDensity: VisualDensity.compact,
+            contentPadding: const EdgeInsets.only(left: 36),
+            title: Text(it.$1),
+            trailing: const Icon(Icons.chevron_right, size: 18),
+            onTap: it.$2,
+          ),
+      ],
+    );
+  }
+
   List<Widget> _widgetsD() => [
           const SectionTitle('Безопасность'),
           if (bioAvail)
@@ -50,31 +72,37 @@ extension _ExtSettingsWidgetsD on _SettingsScreenState {
             ),
           ],
 
-          const SectionTitle('История синхронизации'),
-          const Hint('Дата, статус, сколько данных отправлено и получено, куда и подробный журнал.'),
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => DiagHub(store: s, tab: 1))),
-            child: const Text('Открыть историю'),
-          ),
+          const SectionTitle('Как работает синхронизация'),
+          const Hint('Что синхронизируется: заметки и папки, события календаря, вложения (фото, голос, файлы), '
+              'пароли, часть настроек профиля, общие папки. Данные шифруются на устройстве ключом из пароля профиля; '
+              'на сервер (WebDAV, Google Диск или локальную папку) уходят только зашифрованные файлы.'),
+          const Hint('Как: приложение сравнивает отметки времени правок и обменивается только изменившимся. '
+              'Если одна и та же запись изменена на двух устройствах, сохраняются обе версии — ничего не теряется. '
+              'Если ничего не изменилось, файлы на устройстве не перезаписываются.'),
+          const Hint('Когда: по правилам из блока «Когда синхронизировать» (общие для всего) и кнопками. '
+              'Строка состояния и пункт «Синхронизировать» — всё сразу; кнопка в заметках, календаре и общей папке — '
+              'только этот модуль. Подробности каждого обмена: нажмите на строку состояния.'),
 
           const SectionTitle('Резервная копия и перенос'),
           const Hint('Бэкап содержит все данные профиля, включая пароли и вложения, в зашифрованном виде. '
               'Joplin: заметки, папки, теги и вложения (формат JEX). Календарь: файлы .ics.'),
-          Wrap(spacing: 10, runSpacing: 8, children: [
-            FilledButton(onPressed: _backup, child: const Text('Полный бэкап')),
-            OutlinedButton(onPressed: _restore, child: const Text('Восстановить')),
-            OutlinedButton(onPressed: _safetyList, child: const Text('Страховочные копии')),
-            OutlinedButton(
-                onPressed: () => _upload(null), child: const Text('Бэкап на сервер сейчас')),
-            OutlinedButton(onPressed: _remoteBackups, child: const Text('Бэкапы на сервере')),
-            OutlinedButton(onPressed: _jexImport, child: const Text('Импорт из Joplin')),
-            OutlinedButton(onPressed: () => Importer.pick(context, s), child: const Text('Импорт заметок (все форматы)')),
-            OutlinedButton(onPressed: _jexExport, child: const Text('Экспорт в Joplin')),
-            OutlinedButton(onPressed: _mdExport, child: const Text('Экспорт в Markdown')),
-            OutlinedButton(onPressed: _pdfExport, child: const Text('Экспорт всех заметок в PDF')),
-            OutlinedButton(onPressed: _icsImport, child: const Text('Импорт календаря')),
-            OutlinedButton(onPressed: _icsExport, child: const Text('Экспорт календаря')),
+          _bkGroup('Бэкап профиля', Icons.backup_outlined, [
+            ('Полный бэкап', _backup),
+            ('Восстановить', _restore),
+            ('Страховочные копии', _safetyList),
+            ('Бэкап на сервер сейчас', () => _upload(null)),
+            ('Бэкапы на сервере', _remoteBackups),
+          ]),
+          _bkGroup('Импорт', Icons.file_download_outlined, [
+            ('Из Joplin (JEX)', _jexImport),
+            ('Заметки (все форматы)', () => Importer.pick(context, s)),
+            ('Календарь (.ics)', _icsImport),
+          ]),
+          _bkGroup('Экспорт', Icons.file_upload_outlined, [
+            ('В Joplin (JEX)', _jexExport),
+            ('В Markdown', _mdExport),
+            ('Все заметки в PDF', _pdfExport),
+            ('Календарь (.ics)', _icsExport),
           ]),
           const SizedBox(height: 12),
           const Text('Бэкап на WebDAV', style: TextStyle(fontWeight: FontWeight.w600)),

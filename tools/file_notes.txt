@@ -77,3 +77,7 @@ lib/dictation.dart | Голос | Сервис диктовки: запись �
 lib/win_module.dart | Windows | Модуль «Windows»: правила переназначения клавиш, комбинация диктовки, WinService.apply
 lib/dock.dart | Док | Режим дока (по мотивам RocketDock): DockMode, DockView (увеличение значков), DockPage (настройки)
 Части файлов: <имя>_N.dart = part of <имя>.dart (см. DECISIONS «Правило файл ≤ 300 строк»).
+Новый файл: добавить строку сюда и первой строкой файла '// ▸ описание' (см. docs/SCALING.md).
+key_capture.dart | platform | Захват нажатых клавиш (диалог «нажмите клавиши») и перевод Flutter-клавиш в коды Windows VK
+md_toolbar.dart | notes | Одна общая панель форматирования Markdown для всей заметки (действует на активный текстовый блок)
+calendar_desktop.dart | calendar | Часть calendar_page.dart: десктопный календарь в стиле Noteplan (шапка с видами, сетка месяца, колонки недели)

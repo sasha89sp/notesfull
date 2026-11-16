@@ -1,3 +1,4 @@
+// ▸ Импорт/экспорт паролей: Bitwarden, KeePass, LastPass, CSV
 import 'dart:convert';
 import 'models.dart';
 import 'util.dart';
@@ -90,7 +91,7 @@ class PassIO {
         ..password = cell(r, iPass)
         ..url = cell(r, iUrl)
         ..notes = cell(r, iNotes)
-        ..folder = cell(r, iFolder)
+        ..folder = cell(r, iFolder).replaceAll('\\', '/').trim()
         ..totp = cell(r, iTotp)
         ..favorite = cell(r, iFav) == '1' || cell(r, iFav).toLowerCase() == 'true';
       if (e.title.isEmpty) e.title = e.url;
@@ -102,26 +103,41 @@ class PassIO {
   static List<PassEntry> _keepassXml(String text) {
     // история изменений записи содержит вложенные <Entry> — убираем, иначе запись теряется
     text = text.replaceAll(RegExp(r'<History>.*?</History>', dotAll: true), '');
+    final rb = RegExp(r'<RecycleBinUUID>(.*?)</RecycleBinUUID>').firstMatch(text)?.group(1)?.trim() ?? '';
+    final skipRb = rb.isNotEmpty && !rb.startsWith('AAAAAAAAAAAA'); // «пустой» UUID — корзины нет
     final out = <PassEntry>[];
-    final groups = <String>[];
+    final names = <String>[];
+    final uuids = <String>[];
     final re = RegExp(r'<Group>|</Group>|<Entry>.*?</Entry>', dotAll: true);
     for (final m in re.allMatches(text)) {
       final tok = m.group(0)!;
       if (tok == '<Group>') {
-        final nm = RegExp(r'<Name>(.*?)</Name>', dotAll: true)
-            .matchAsPrefix(text, m.end + _skipWs(text, m.end));
-        groups.add(nm == null ? '' : unescapeXml(nm.group(1)!));
+        // в настоящих файлах KeePass перед <Name> идёт <UUID>: ищем имя в заголовке группы
+        var end = text.length;
+        for (final s in const ['<Entry>', '<Group>', '</Group>']) {
+          final i = text.indexOf(s, m.end);
+          if (i >= 0 && i < end) end = i;
+        }
+        final head = text.substring(m.end, end);
+        final nm = RegExp(r'<Name>(.*?)</Name>', dotAll: true).firstMatch(head);
+        final id = RegExp(r'<UUID>(.*?)</UUID>', dotAll: true).firstMatch(head);
+        names.add(nm == null ? '' : unescapeXml(nm.group(1)!).trim());
+        uuids.add(id == null ? '' : id.group(1)!.trim());
       } else if (tok == '</Group>') {
-        if (groups.isNotEmpty) groups.removeLast();
+        if (names.isNotEmpty) {
+          names.removeLast();
+          uuids.removeLast();
+        }
       } else {
+        if (skipRb && uuids.contains(rb)) continue; // удалённые записи (корзина KeePass) не переносим
         final f = <String, String>{};
         for (final s in RegExp(
-                r'<String>\s*<Key>(.*?)</Key>\s*<Value[^>]*>(.*?)</Value>',
+                r'<String>\s*<Key>(.*?)</Key>\s*(?:<Value\s*/>|<Value[^>/]*>(.*?)</Value>)',
                 dotAll: true)
             .allMatches(tok)) {
-          f[unescapeXml(s.group(1)!)] = unescapeXml(s.group(2)!);
+          f[unescapeXml(s.group(1)!)] = unescapeXml(s.group(2) ?? '');
         }
-        final folder = groups.length > 1 ? groups.sublist(1).join('/') : '';
+        final folder = names.length > 1 ? names.sublist(1).where((x) => x.isNotEmpty).join('/') : '';
         final e = PassEntry.create()
           ..title = f['Title'] ?? ''
           ..username = f['UserName'] ?? ''
@@ -237,9 +253,15 @@ class PassIO {
     String field(String k, String v, {bool protect = false}) =>
         '<String><Key>$k</Key><Value${protect ? ' ProtectInMemory="True"' : ''}>${escapeXml(v)}</Value></String>';
     sb.write('<?xml version="1.0" encoding="utf-8" standalone="yes"?>\n<KeePassFile><Root><Group><Name>Database</Name>');
-    final byFolder = <String, List<PassEntry>>{};
+    // дерево папок: «A/B» → группа A, внутри группа B
+    final root = <String, dynamic>{'e': <PassEntry>[], 'c': <String, dynamic>{}};
     for (final e in list) {
-      byFolder.putIfAbsent(e.folder, () => []).add(e);
+      var node = root;
+      for (final part in e.folder.split('/').where((x) => x.trim().isNotEmpty)) {
+        node = (node['c'] as Map<String, dynamic>).putIfAbsent(part.trim(), () => <String, dynamic>{'e': <PassEntry>[], 'c': <String, dynamic>{}})
+            as Map<String, dynamic>;
+      }
+      (node['e'] as List<PassEntry>).add(e);
     }
     void entries(List<PassEntry> l) {
       for (final e in l) {
@@ -254,12 +276,16 @@ class PassIO {
       }
     }
 
-    entries(byFolder[''] ?? []);
-    for (final f in byFolder.entries.where((e) => e.key.isNotEmpty)) {
-      sb.write('<Group><Name>${escapeXml(f.key)}</Name>');
-      entries(f.value);
-      sb.write('</Group>');
+    void walk(Map<String, dynamic> node) {
+      entries(node['e'] as List<PassEntry>);
+      for (final c in (node['c'] as Map<String, dynamic>).entries) {
+        sb.write('<Group><Name>${escapeXml(c.key)}</Name>');
+        walk(c.value as Map<String, dynamic>);
+        sb.write('</Group>');
+      }
     }
+
+    walk(root);
     sb.write('</Group></Root></KeePassFile>');
     return sb.toString();
   }

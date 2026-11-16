@@ -1,3 +1,4 @@
+// ▸ AES-256-GCM, PBKDF2; encrypt/decrypt, encryptJson/decryptJson в изолятах
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';

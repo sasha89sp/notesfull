@@ -1,3 +1,4 @@
+// ▸ Правая панель «Расписание»: вертикальный таймлайн выбранного дня
 import 'package:flutter/material.dart';
 import 'event_screen.dart';
 import 'calendars.dart';

@@ -1,3 +1,4 @@
+// ▸ Часть pass_page.dart: Экран паролей: мобильный список и компьютерный вид в три блока, карточка записи  [содержит: _ExtPassPageState1]
 part of 'pass_page.dart';
 
 extension _ExtPassPageState1 on _PassPageState {
@@ -148,9 +149,17 @@ extension _ExtPassPageState1 on _PassPageState {
     try {
       final f = r.files.first;
       final list = PassIO.import(f.name, utf8.decode(f.bytes!, allowMalformed: true));
-      p.entries.addAll(list);
+      String sig(PassEntry e) => '${e.title}\u0001${e.username}\u0001${e.url}\u0001${e.password}\u0001${e.folder}';
+      final have = {for (final e in p.entries) if (!e.deleted) sig(e)};
+      final fresh = [for (final e in list) if (have.add(sig(e))) e];
+      final folders = {for (final e in fresh) if (e.folder.isNotEmpty) e.folder};
+      p.entries.addAll(fresh);
       p.changed();
-      if (mounted) toast(context, 'Импортировано записей: ${list.length}');
+      if (mounted) {
+        toast(context,
+            'Импортировано записей: ${fresh.length}, папок: ${folders.length}'
+            '${list.length > fresh.length ? ' (повторы пропущены: ${list.length - fresh.length})' : ''}');
+      }
     } catch (e) {
       if (mounted) toast(context, '$e');
     }

@@ -1,3 +1,4 @@
+// ▸ Часть settings_screen.dart: Экран настроек (вид, модули, хранилище, бэкап, шифрование, блокировки, экспорт)  [содержит: _ExtSettingsWidgetsC]
 part of 'settings_screen.dart';
 
 extension _ExtSettingsWidgetsC on _SettingsScreenState {
@@ -53,18 +54,37 @@ extension _ExtSettingsWidgetsC on _SettingsScreenState {
               'Вставьте Client ID и Secret. Вход выполняется через браузер, сервисы Google Play не нужны.'),
           _field('gId', 'Client ID'),
           _field('gSecret', 'Client Secret', obscure: true),
-          Row(children: [
+          Wrap(spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
             FilledButton(onPressed: _google, child: const Text('Войти в Google')),
-            const SizedBox(width: 12),
             if (st.googleConfigured)
               Text('подключено', style: TextStyle(color: Pal.success(context))),
-            const Spacer(),
             if (st.googleConfigured)
               OutlinedButton(
                   onPressed: _googleLogout,
                   child: const Text('Выйти из Google Календаря')),
           ]),
           if (gStatus.isNotEmpty) Hint(gStatus),
+
+          const SectionTitle('Синхронизация календаря'),
+          const Hint('События обмениваются с сервером, Google Календарём и подписками iCal. '
+              'Здесь — правила только для календаря; общие правила — в разделе «Синхронизация и бэкап».'),
+          _drop('Google Календарь', '${st.gcalEvery}',
+              const {'0': 'Только вручную', '30': 'Каждые 30 минут', '60': 'Каждый час', '120': 'Каждые 2 часа', '360': 'Каждые 6 часов'},
+              (v) {
+            st.gcalEvery = int.tryParse(v) ?? 0;
+            _auto();
+          }),
+          const Hint('Google Календарь загружается целиком, поэтому по расписанию он обновляется редко; '
+              'после правки события в приложении он обновится сразу. '
+              'Если ничего не изменилось, файлы на устройстве не перезаписываются.'),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => s.syncAll(scope: 'calendar'),
+              icon: const Icon(Icons.sync, size: 18),
+              label: const Text('Синхронизировать календарь'),
+            ),
+          ),
 
       ];
 }

@@ -1,3 +1,4 @@
+// ▸ Утилиты: runPool, writeAtomic/readValid, saveBytes, toast, isDesktop
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';

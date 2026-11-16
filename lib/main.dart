@@ -1,3 +1,4 @@
+// ▸ Точка входа, тема, MaterialApp.builder (масштаб, компактный вид, глобальная строка статуса)
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show PlatformDispatcher;

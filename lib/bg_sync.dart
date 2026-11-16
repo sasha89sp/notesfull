@@ -1,3 +1,4 @@
+// ▸ Фоновая синхронизация Android через WorkManager (bgDispatcher, BgSync.apply)
 import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:workmanager/workmanager.dart';

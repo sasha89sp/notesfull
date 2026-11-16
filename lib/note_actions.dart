@@ -1,3 +1,4 @@
+// ▸ Действия над заметками и папками для контекстного меню
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'backup.dart';

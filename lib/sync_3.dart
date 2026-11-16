@@ -1,3 +1,4 @@
+// ▸ Часть sync.dart: SyncService: обмен с сервером (заметки, события, папки, группы, вложения, чат, комментарии, пароли)  [содержит: SyncChat]
 part of 'sync.dart';
 
 class SyncChat {

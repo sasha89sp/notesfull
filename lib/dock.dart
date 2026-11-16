@@ -1,3 +1,4 @@
+// ▸ Режим «Док» (по мотивам RocketDock): окно превращается в узкую панель значков у края экрана,
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -20,49 +21,61 @@ class DockMode {
 
   static bool get supported => Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
+  static bool _busy = false;
+
+  /// Вызов оконной функции с таймаутом: если платформа не ответила, приложение не зависает.
+  static Future<void> _t(Future<void> f) async {
+    try {
+      await f.timeout(const Duration(seconds: 3));
+    } catch (_) {}
+  }
+
+  /// Док закрепляется у края экрана на всю его ширину (или высоту — для левого/правого края).
   static Future<void> enter(Store s) async {
-    if (!supported || active.value) return;
-    final st = s.settings;
-    _saved = await windowManager.getBounds();
-    final v = ui.PlatformDispatcher.instance.views.first;
-    final scr = Size(v.display.size.width / v.devicePixelRatio, v.display.size.height / v.devicePixelRatio);
-    final n = math.max(1, st.dockItems.length);
-    final slot = st.dockSize + 14.0;
-    final thick = st.dockSize * st.dockZoom + 36;
-    final long = math.min(
-        (st.dockPos == 'bottom' || st.dockPos == 'top' ? scr.width : scr.height) - 40, n * slot + 60 + st.dockSize * (st.dockZoom - 1));
-    final horiz = st.dockPos == 'bottom' || st.dockPos == 'top';
-    final size = horiz ? Size(long, thick) : Size(thick, long);
-    Offset pos;
-    switch (st.dockPos) {
-      case 'top':
-        pos = Offset((scr.width - size.width) / 2, 4);
-      case 'left':
-        pos = Offset(4, (scr.height - size.height) / 2);
-      case 'right':
-        pos = Offset(scr.width - size.width - 4, (scr.height - size.height) / 2);
-      default:
-        pos = Offset((scr.width - size.width) / 2, scr.height - size.height - 52); // над панелью задач
+    if (!supported || active.value || _busy) return;
+    _busy = true;
+    try {
+      final st = s.settings;
+      try {
+        _saved = await windowManager.getBounds().timeout(const Duration(seconds: 3));
+      } catch (_) {
+        _saved = null;
+      }
+      final v = ui.PlatformDispatcher.instance.views.first;
+      final scr = Size(v.display.size.width / v.devicePixelRatio, v.display.size.height / v.devicePixelRatio);
+      final thick = st.dockSize * st.dockZoom + 30;
+      final Rect r;
+      switch (st.dockPos) {
+        case 'bottom':
+          r = Rect.fromLTWH(0, scr.height - thick - 48, scr.width, thick); // над панелью задач
+        case 'left':
+          r = Rect.fromLTWH(0, 0, thick, scr.height - 48);
+        case 'right':
+          r = Rect.fromLTWH(scr.width - thick, 0, thick, scr.height - 48);
+        default:
+          r = Rect.fromLTWH(0, 0, scr.width, thick);
+      }
+      await _t(windowManager.unmaximize());
+      await _t(windowManager.setMinimumSize(const Size(60, 40)));
+      await _t(windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false));
+      await _t(windowManager.setBounds(r));
+      await _t(windowManager.setAlwaysOnTop(st.dockOnTop));
+      await _t(windowManager.setSkipTaskbar(true));
+      active.value = true;
+    } finally {
+      _busy = false;
     }
-    await windowManager.setMinimumSize(const Size(60, 60));
-    await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
-    await windowManager.setBackgroundColor(Colors.transparent);
-    await windowManager.setSize(size);
-    await windowManager.setPosition(pos);
-    await windowManager.setAlwaysOnTop(st.dockOnTop);
-    await windowManager.setSkipTaskbar(true);
-    active.value = true;
   }
 
   static Future<void> exit() async {
     if (!active.value) return;
     active.value = false;
-    await windowManager.setSkipTaskbar(false);
-    await windowManager.setAlwaysOnTop(false);
-    await windowManager.setTitleBarStyle(TitleBarStyle.normal);
-    await windowManager.setMinimumSize(const Size(300, 200));
+    await _t(windowManager.setSkipTaskbar(false));
+    await _t(windowManager.setAlwaysOnTop(false));
+    await _t(windowManager.setTitleBarStyle(TitleBarStyle.normal));
+    await _t(windowManager.setMinimumSize(const Size(420, 560)));
     final r = _saved;
-    if (r != null) await windowManager.setBounds(r);
+    if (r != null) await _t(windowManager.setBounds(r));
   }
 
   /// Запуск программы, файла или папки.
@@ -216,22 +229,13 @@ class _DockViewState extends State<DockView> {
             child: _horiz ? Row(mainAxisSize: MainAxisSize.min, children: cells) : Column(mainAxisSize: MainAxisSize.min, children: cells),
           );
     return Material(
-      color: Colors.transparent,
+      color: bg,
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onSecondaryTapUp: (d) => _menu(d.globalPosition),
-        onPanStart: (_) => windowManager.startDragging(),
-        child: Align(
-          alignment: _anchor,
-          child: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Pal.border(context)),
-            ),
-            child: strip,
-          ),
+        child: Container(
+          decoration: BoxDecoration(border: Border.all(color: Pal.border(context), width: 0.5)),
+          child: Align(alignment: _anchor, child: Padding(padding: const EdgeInsets.all(6), child: strip)),
         ),
       ),
     );

@@ -1,3 +1,4 @@
+// ▸ Реестр аккаунтов ASRbox на хранилище (accounts/<uid>.json), проверка пароля, синхронизация настроек (список _skip — что не едет между устрой
 import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'crypto.dart';

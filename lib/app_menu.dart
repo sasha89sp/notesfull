@@ -1,3 +1,4 @@
+// ▸ Верхнее меню компьютерного вида (Файл · Вид · Переход · Блокноты · Заметка · Сервис · Помощь), импорт/экспорт из меню
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'backup.dart';

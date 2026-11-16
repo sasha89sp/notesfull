@@ -68,6 +68,10 @@ open class MainActivity : FlutterFragmentActivity() {{
                         finish()
                         result.success(null)
                     }}
+                    "minimize" -> {{
+                        moveTaskToBack(true)
+                        result.success(null)
+                    }}
                     else -> result.notImplemented()
                 }}
             }}

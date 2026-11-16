@@ -1,3 +1,4 @@
+// ▸ Модуль «Диктовка»: зажмите кнопку (или нажмите для переключения), наговорите — текст
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dictation.dart';

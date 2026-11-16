@@ -1,3 +1,4 @@
+// ▸ Строчные операции меню «Правка» (как в Joplin): удалить/дублировать/переместить
 import 'package:flutter/services.dart';
 import 'md_ops.dart';
 

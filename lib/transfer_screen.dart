@@ -1,3 +1,4 @@
+// ▸ Подробный журнал передачи данных
 import 'package:flutter/material.dart';
 import 'models.dart';
 import 'remote.dart';

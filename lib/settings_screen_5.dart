@@ -1,3 +1,4 @@
+// ▸ Часть settings_screen.dart: Экран настроек (вид, модули, хранилище, бэкап, шифрование, блокировки, экспорт)  [содержит: _ExtSettingsWidgetsA]
 part of 'settings_screen.dart';
 
 extension _ExtSettingsWidgetsA on _SettingsScreenState {
@@ -182,13 +183,10 @@ extension _ExtSettingsWidgetsA on _SettingsScreenState {
             ),
           ]),
           const SizedBox(height: 12),
-          _drop('Вложения (фото, голос, файлы)', st.attMode,
-              const {'wifi': 'Только Wi-Fi', 'any': 'Любая сеть', 'off': 'Не синхронизировать'},
-              (v) => st.attMode = v),
 
           const SectionTitle('Когда синхронизировать'),
-          const Hint('Чтобы приложение не делало лишних обращений к серверу и не подвисало. '
-              'Кнопкой синхронизации можно запустить обмен в любой момент.'),
+          const Hint('Общие правила для всей синхронизации. Свои настройки у заметок, календаря и общей папки — '
+              'в их разделах настроек. Кнопкой можно запустить обмен в любой момент.'),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('При запуске приложения'),
@@ -233,15 +231,5 @@ extension _ExtSettingsWidgetsA on _SettingsScreenState {
             st.syncEvery = int.tryParse(v) ?? 0;
             _auto();
           }),
-          _drop('Google Календарь', '${st.gcalEvery}',
-              const {'0': 'Только вручную', '30': 'Каждые 30 минут', '60': 'Каждый час', '120': 'Каждые 2 часа', '360': 'Каждые 6 часов'},
-              (v) {
-            st.gcalEvery = int.tryParse(v) ?? 0;
-            _auto();
-          }),
-          const Hint('Google Календарь загружается целиком, поэтому по расписанию он обновляется редко; '
-              'после правки события в приложении он обновится сразу. '
-              'Если ничего не изменилось, файлы на устройстве не перезаписываются.'),
-
       ];
 }

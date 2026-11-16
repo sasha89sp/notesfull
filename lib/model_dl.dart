@@ -1,3 +1,4 @@
+// ▸ Собственная загрузка моделей Whisper (ggml): с прогрессом, отменой, докачкой
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';

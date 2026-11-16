@@ -1,3 +1,4 @@
+// ▸ Трёхстороннее слияние заметок по блокам/строкам/ячейкам (mergeNotes)
 import 'dart:convert';
 import 'models.dart';
 

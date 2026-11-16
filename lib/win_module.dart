@@ -1,6 +1,8 @@
+// ▸ Таблица клавиш для правил: код VK → название.
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'dictation.dart';
+import 'key_capture.dart';
 import 'models.dart';
 import 'store.dart';
 import 'widgets.dart';
@@ -66,20 +68,24 @@ class _WinPageState extends State<WinPage> {
     if (mounted) setState(() => _err = e ?? '');
   }
 
-  Widget _keyDrop(int? value, void Function(int?) set, {bool allowNone = false}) {
-    return DropdownButton<int?>(
-      value: kKeyNames.containsKey(value) ? value : null,
-      isDense: true,
-      hint: const Text('—'),
-      items: [
-        if (allowNone) const DropdownMenuItem<int?>(value: null, child: Text('—')),
-        for (final k in kKeyNames.entries) DropdownMenuItem<int?>(value: k.key, child: Text(k.value)),
-      ],
-      onChanged: (v) {
-        set(v);
-        _save();
-      },
-    );
+  Future<void> _addRule() async {
+    final from = await captureKeys(context, title: 'Шаг 1: какую клавишу переназначить?', single: true);
+    if (from == null || !mounted) return;
+    final to = await captureKeys(context, title: 'Шаг 2: что должно нажиматься вместо ${keyName(from.first)}?');
+    if (to == null || !mounted) return;
+    setState(() => st.remaps = [
+          ...st.remaps,
+          {'from': from.first, 'to': to, 'on': true},
+        ]);
+    _save();
+  }
+
+  /// Комбинация диктовки: запись нажатием клавиш.
+  Future<void> _recordDict() async {
+    final k = await captureKeys(context, title: 'Сочетание клавиш для диктовки');
+    if (k == null || !mounted) return;
+    setState(() => st.dictKeys = k.take(3).toList());
+    _save();
   }
 
   @override
@@ -114,13 +120,7 @@ class _WinPageState extends State<WinPage> {
       Align(
         alignment: Alignment.centerLeft,
         child: OutlinedButton.icon(
-          onPressed: () {
-            setState(() => st.remaps = [
-                  ...st.remaps,
-                  {'from': 0xA0, 'to': [0xA2, 0x43], 'on': true},
-                ]);
-            _save();
-          },
+          onPressed: _addRule,
           icon: const Icon(Icons.add, size: 18),
           label: const Text('Добавить правило'),
         ),
@@ -139,15 +139,7 @@ class _WinPageState extends State<WinPage> {
       ),
       Wrap(spacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
         Text('Комбинация:', style: TextStyle(color: sec)),
-        for (var i = 0; i < 3; i++)
-          _keyDrop(i < st.dictKeys.length ? st.dictKeys[i] : null, (v) {
-            final l = [...st.dictKeys];
-            while (l.length < 3) {
-              l.add(0);
-            }
-            l[i] = v ?? 0;
-            setState(() => st.dictKeys = l.where((x) => x != 0).toList());
-          }, allowNone: true),
+        ActionChip(label: Text(comboText(st.dictKeys)), onPressed: _recordDict),
       ]),
     ]);
   }
@@ -167,18 +159,28 @@ class _WinPageState extends State<WinPage> {
                 _save();
               }),
           Expanded(
-            child: Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
-              _keyDrop(r['from'] as int?, (v) => setState(() => r['from'] = v ?? 0xA0)),
+            child: Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+              ActionChip(
+                label: Text(keyName((r['from'] as num?)?.toInt() ?? 0xA0)),
+                tooltip: 'Нажмите, чтобы выбрать другую клавишу',
+                onPressed: () async {
+                  final k = await captureKeys(context, title: 'Какую клавишу переназначить?', single: true);
+                  if (k == null || !mounted) return;
+                  setState(() => r['from'] = k.first);
+                  _save();
+                },
+              ),
               const Icon(Icons.arrow_forward, size: 16),
-              for (var k = 0; k < 3; k++)
-                _keyDrop(k < to.length ? to[k] : null, (v) {
-                  final l = [...to];
-                  while (l.length < 3) {
-                    l.add(0);
-                  }
-                  l[k] = v ?? 0;
-                  setState(() => r['to'] = l.where((x) => x != 0).toList());
-                }, allowNone: true),
+              ActionChip(
+                label: Text(comboText(to)),
+                tooltip: 'Нажмите, чтобы записать другое сочетание',
+                onPressed: () async {
+                  final k = await captureKeys(context, title: 'Что нажать вместо неё?');
+                  if (k == null || !mounted) return;
+                  setState(() => r['to'] = k);
+                  _save();
+                },
+              ),
             ]),
           ),
           IconButton(

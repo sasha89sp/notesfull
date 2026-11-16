@@ -1,3 +1,4 @@
+// ▸ Часть dock.dart  [содержит: _DockPageState]
 part of 'dock.dart';
 
 
@@ -64,7 +65,7 @@ class _DockPageState extends State<DockPage> {
             DropdownMenuItem(value: 'right', child: Text('Справа')),
           ],
           onChanged: (v) {
-            st.dockPos = v ?? 'bottom';
+            st.dockPos = v ?? 'top';
             _save();
           },
         ),

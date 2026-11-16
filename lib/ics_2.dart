@@ -1,3 +1,4 @@
+// ▸ Часть ics.dart: Импорт и экспорт календаря .ics  [содержит: IcsRaw]
 part of 'ics.dart';
 
 

@@ -1,3 +1,4 @@
+// ▸ Часть ics_block.dart  [содержит: _ExtIcsBlockViewState1]
 part of 'ics_block.dart';
 
 extension _ExtIcsBlockViewState1 on _IcsBlockViewState {

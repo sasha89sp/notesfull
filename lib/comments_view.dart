@@ -1,3 +1,4 @@
+// ▸ Комментарии к общим заметкам
 import 'package:flutter/material.dart';
 import 'groups.dart';
 import 'models.dart';

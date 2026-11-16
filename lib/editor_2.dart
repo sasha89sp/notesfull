@@ -1,3 +1,4 @@
+// ▸ Часть editor.dart: Редактор заметки (блоки, меню, экспорт, встраиваемый режим)  [содержит: _ExtEditorScreenState1]
 part of 'editor.dart';
 
 extension _ExtEditorScreenState1 on _EditorScreenState {
@@ -50,6 +51,7 @@ extension _ExtEditorScreenState1 on _EditorScreenState {
       );
       if (type == 'table') b.table = TableData.empty(4, 4);
       n.blocks.add(b);
+      _ensureTail();
     });
     _touch();
   }
@@ -57,14 +59,20 @@ extension _ExtEditorScreenState1 on _EditorScreenState {
   Future<void> _addImage() async {
     final b = await pickImageBlock(context, s);
     if (b == null) return;
-    setState(() => n.blocks.add(b));
+    setState(() {
+      n.blocks.add(b);
+      _ensureTail();
+    });
     _touch();
   }
 
   Future<void> _addFile() async {
     final b = await pickFileBlock(context, s);
     if (b == null) return;
-    setState(() => n.blocks.add(b));
+    setState(() {
+      n.blocks.add(b);
+      _ensureTail();
+    });
     _touch();
   }
 

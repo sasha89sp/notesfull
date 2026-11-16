@@ -1,3 +1,4 @@
+// ▸ Часть calendar_page.dart: Экран календаря (месяц/список событий и задач)  [содержит: _ExtCalendarPageState1]
 part of 'calendar_page.dart';
 
 extension _ExtCalendarPageState1 on _CalendarPageState {

@@ -1,3 +1,4 @@
+// ▸ Экран входа, создание профиля, пароль, биометрия
 import 'package:flutter/material.dart';
 import 'connect.dart';
 import 'store.dart';

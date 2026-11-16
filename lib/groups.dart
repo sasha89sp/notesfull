@@ -1,3 +1,4 @@
+// ▸ Группы: создание, приглашения, права, вступление, профили участников
 import 'dart:convert';
 import 'dart:math';
 import 'package:cryptography/cryptography.dart';

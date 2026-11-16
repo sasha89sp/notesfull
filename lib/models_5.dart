@@ -1,3 +1,4 @@
+// ▸ Часть models.dart: Все модели данных: Note, Block, TableData, CalEvent, PassEntry, Group, Settings, ChatMsg  [содержит: Settings]
 part of 'models.dart';
 
 
@@ -159,7 +160,7 @@ class Settings {
     this.dictGlobal = false,
     this.dictKeys = const [0xA2, 0xA0, 0x20],
     this.dockItems = const [],
-    this.dockPos = 'bottom',
+    this.dockPos = 'top',
     this.dockSize = 48,
     this.dockZoom = 1.7,
     this.dockOpacity = 0.9,
@@ -253,7 +254,7 @@ class Settings {
       dictGlobal: (j['dictGlobal'] ?? false) as bool,
       dictKeys: [for (final x in (j['dictKeys'] ?? [0xA2, 0xA0, 0x20]) as List) (x as num).toInt()],
       dockItems: [for (final x in (j['dockItems'] ?? []) as List) Map<String, dynamic>.from(x as Map)],
-      dockPos: (j['dockPos'] ?? 'bottom') as String,
+      dockPos: (j['dockPos'] ?? 'top') as String,
       dockSize: ((j['dockSize'] ?? 48) as num).toInt(),
       dockZoom: ((j['dockZoom'] ?? 1.7) as num).toDouble(),
       dockOpacity: ((j['dockOpacity'] ?? 0.9) as num).toDouble(),

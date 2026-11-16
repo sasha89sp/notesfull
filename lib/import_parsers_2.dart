@@ -1,3 +1,4 @@
+// ▸ Часть import_parsers.dart: Разбор форматов импорта в фоновом изоляте (impParse): Markdown, Obsidian, HTML, TXT, Evernote ENEX  [содержит: _Parser]
 part of 'import_parsers.dart';
 
 

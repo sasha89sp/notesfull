@@ -1,3 +1,4 @@
+// ▸ Общие виджеты: Pal, AppCard, Avatar, TagChip, Fab
 import 'package:flutter/material.dart';
 import 'theme.dart';
 

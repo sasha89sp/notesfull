@@ -1,3 +1,4 @@
+// ▸ Мини-календарь месяца (7 колонок, ячейки 28 px, сегодня — индиго-кружок, точки у дней с событиями).
 import 'package:flutter/material.dart';
 import 'calendars.dart';
 import 'models.dart';

@@ -1,3 +1,4 @@
+// ▸ Раздел «Общая папка»: группы, приглашения, участники
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'chat_page.dart';

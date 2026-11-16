@@ -1,3 +1,4 @@
+// ▸ Часть shell.dart: Оболочка: вкладки, боковое меню (телефон), левая панель (компьютер), модули  [содержит: _ExtShellState2, _AlertView, _ModulesHome]
 part of 'shell.dart';
 
 extension _ExtShellState2 on _ShellState {
@@ -17,14 +18,17 @@ extension _ExtShellState2 on _ShellState {
         ]),
       );
     }
+    // в модуле — синхронизация только его данных; в остальных разделах — всё
+    final scope = const {'home': 'notes', 'notes': 'notes', 'calendar': 'calendar', 'shared': 'shared'}[_tab] ?? 'all';
+    final what = const {'notes': 'заметки', 'calendar': 'календарь', 'shared': 'общую папку'}[scope];
     return IconButton(
       icon: const Icon(Icons.sync),
-      tooltip: 'Синхронизировать',
+      tooltip: what == null ? 'Синхронизировать всё' : 'Синхронизировать: $what',
       onPressed: () {
         if (!s.settings.syncConfigured && !s.settings.googleConfigured) {
           _openSettings();
         } else {
-          s.syncAll();
+          s.syncAll(scope: scope);
         }
       },
     );

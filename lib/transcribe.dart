@@ -1,3 +1,4 @@
+// ▸ Облачная расшифровка голоса (Whisper-совместимый API)
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;

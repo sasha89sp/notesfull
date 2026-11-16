@@ -1,3 +1,4 @@
+// ▸ Уведомления и напоминания (Android/Windows)
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/widgets.dart';

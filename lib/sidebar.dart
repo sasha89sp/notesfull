@@ -1,3 +1,4 @@
+// ▸ Левая панель компьютерного вида (260 px): «Новая заметка», мини-календарь,
 import 'package:flutter/material.dart';
 import 'models.dart';
 import 'store.dart';

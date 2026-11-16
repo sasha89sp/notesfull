@@ -1,3 +1,4 @@
+// ▸ Корзина (30 дней)
 import 'package:flutter/material.dart';
 import 'models.dart';
 import 'store.dart';

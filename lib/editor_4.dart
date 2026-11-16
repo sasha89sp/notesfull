@@ -1,48 +1,32 @@
+// ▸ Часть editor.dart: Редактор заметки (блоки, меню, экспорт, встраиваемый режим)  [содержит: _ExtEditorScreenState3]
 part of 'editor.dart';
 
 extension _ExtEditorScreenState3 on _EditorScreenState {
 
+  /// Единое окно редактирования: блоки идут сплошным потоком, без рамок, заголовков и ручек.
+  /// У вложений (не текст) справа — маленький крестик удаления.
   Widget _blockCard(int index, Block b) {
-    return Container(
+    if (b.type == 'text') {
+      return Padding(key: ValueKey(b.id), padding: const EdgeInsets.symmetric(vertical: 2), child: _blockBody(b));
+    }
+    return Padding(
       key: ValueKey(b.id),
-      margin: const EdgeInsets.symmetric(vertical: 5),
-      padding: const EdgeInsets.fromLTRB(12, 4, 4, 8),
-      decoration: BoxDecoration(
-        color: Pal.card(context),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Pal.border(context), width: 0.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              ReorderableDragStartListener(
-                index: index,
-                child: Icon(Icons.drag_handle,
-                    size: 20, color: Pal.secondary(context)),
-              ),
-              const SizedBox(width: 8),
-              Text(_label(b.type),
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Pal.secondary(context))),
-              const Spacer(),
-              IconButton(
-                tooltip: 'Удалить блок',
-                icon: const Icon(Icons.delete_outline, size: 20),
-                onPressed: () => _removeBlock(b),
-              ),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: _blockBody(b),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: _blockBody(b)),
+        IconButton(
+          tooltip: 'Убрать ${_label(b.type).toLowerCase()}',
+          visualDensity: VisualDensity.compact,
+          icon: Icon(Icons.close, size: 16, color: Pal.secondary(context)),
+          onPressed: () => _removeBlock(b),
+        ),
+      ]),
     );
+  }
+
+  /// В конце заметки всегда есть пустой текстовый блок — можно продолжать печатать после таблицы и т.п.
+  void _ensureTail() {
+    if (n.blocks.isEmpty || n.blocks.last.type != 'text') n.blocks.add(Block(type: 'text'));
   }
 
   /// Просмотр: без рамок, ручек и кнопок добавления — только содержимое.

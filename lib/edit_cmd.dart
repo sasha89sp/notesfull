@@ -1,3 +1,4 @@
+// ▸ Активный Markdown-блок: меню «Правка» применяет к нему форматирование.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'md_lines.dart';

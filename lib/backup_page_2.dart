@@ -1,3 +1,4 @@
+// ▸ Часть backup_page.dart: Экран «Бэкап»: приложение и настройки / телефон (кнопка +, восстановление архива телефона)  [содержит: _ExtBackupPageState1, _ExtBackupPageState2]
 part of 'backup_page.dart';
 
 extension _ExtBackupPageState1 on _BackupPageState {

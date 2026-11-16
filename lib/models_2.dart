@@ -1,3 +1,4 @@
+// ▸ Часть models.dart: Все модели данных: Note, Block, TableData, CalEvent, PassEntry, Group, Settings, ChatMsg  [содержит: Block, Version, NoteFolder]
 part of 'models.dart';
 
 

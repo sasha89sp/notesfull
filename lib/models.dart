@@ -1,3 +1,4 @@
+// ▸ Все модели данных: Note, Block, TableData, CalEvent, PassEntry, Group, Settings, ChatMsg
 import 'dart:convert';
 import 'dart:math';
 import 'local_tx.dart';

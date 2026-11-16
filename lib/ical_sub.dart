@@ -1,3 +1,4 @@
+// ▸ Подписка на онлайн-календарь по ссылке iCal (.ics / webcal://), только чтение.
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'applog.dart';

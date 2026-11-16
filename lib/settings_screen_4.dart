@@ -1,3 +1,4 @@
+// ▸ Часть settings_screen.dart: Экран настроек (вид, модули, хранилище, бэкап, шифрование, блокировки, экспорт)  [содержит: _ExtSettingsScreenState3]
 part of 'settings_screen.dart';
 
 extension _ExtSettingsScreenState3 on _SettingsScreenState {

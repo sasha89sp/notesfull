@@ -1,3 +1,4 @@
+// ▸ Хранилище паролей (свой мастер-пароль и ключ)
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

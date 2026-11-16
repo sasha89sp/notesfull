@@ -1,3 +1,4 @@
+// ▸ Промежуточная заметка импорта (ImpNote) и запись её в хранилище (commitImport)
 import 'dart:typed_data';
 import 'models.dart';
 import 'store.dart';

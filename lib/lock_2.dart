@@ -1,3 +1,4 @@
+// ▸ Часть lock.dart: Экран входа, создание профиля, пароль, биометрия  [содержит: _ExtLockScreenState1]
 part of 'lock.dart';
 
 extension _ExtLockScreenState1 on _LockScreenState {

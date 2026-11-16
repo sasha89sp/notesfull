@@ -1,3 +1,4 @@
+// ▸ Экран паролей: мобильный список и компьютерный вид в три блока, карточка записи
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';

@@ -1,3 +1,4 @@
+// ▸ ThreePane: три блока с перестановкой и изменением ширины
 import 'package:flutter/material.dart';
 import 'store.dart';
 import 'widgets.dart';

@@ -1,3 +1,4 @@
+// ▸ Общий чат группы: шифрованные сообщения, опрос, отправка
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'hub.dart';

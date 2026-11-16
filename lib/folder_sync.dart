@@ -1,3 +1,4 @@
+// ▸ Правило «папка или файл → сервер»: односторонняя выгрузка (зеркало без удаления).
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';

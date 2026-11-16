@@ -1,3 +1,4 @@
+// ▸ Часть groups.dart: Группы: создание, приглашения, права, вступление, профили участников  [содержит: GroupsInvite]
 part of 'groups.dart';
 
 class GroupsInvite {

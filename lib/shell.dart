@@ -1,3 +1,4 @@
+// ▸ Оболочка: вкладки, боковое меню (телефон), левая панель (компьютер), модули
 import 'dart:async';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -223,7 +224,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                         },
                       ),
                       Expanded(child: _body()),
-                      if (s.settings.showSchedule && MediaQuery.of(context).size.width >= 1180) ...[
+                      if (s.settings.showSchedule && MediaQuery.of(context).size.width >= 980) ...[
                         VerticalDivider(width: 1, color: Pal.border(context)),
                         SchedulePanel(store: s),
                       ],
@@ -232,7 +233,13 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                 ]),
               );
             }
-            return Scaffold(
+            // Android: «назад» на главном экране сворачивает приложение, а не закрывает его
+            return PopScope(
+              canPop: !Platform.isAndroid,
+              onPopInvokedWithResult: (didPop, _) {
+                if (!didPop) nativeChannel.invokeMethod<void>('minimize');
+              },
+              child: Scaffold(
               appBar: AppBar(
                 title: Text(_title,
                     style: const TextStyle(
@@ -275,7 +282,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-            );
+            ));
           },
         );
       },

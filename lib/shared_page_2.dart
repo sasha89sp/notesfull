@@ -1,3 +1,4 @@
+// ▸ Часть shared_page.dart: Раздел «Общая папка»: группы, приглашения, участники  [содержит: _FolderPickerState, _CreateDialog, _CreateDialogState, GroupScreen]
 part of 'shared_page.dart';
 
 

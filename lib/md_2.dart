@@ -1,3 +1,4 @@
+// ▸ Часть md.dart: Разбор Markdown в блоки и отображение (MdDoc)  [содержит: _MdDocState]
 part of 'md.dart';
 
 

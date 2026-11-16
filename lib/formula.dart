@@ -1,3 +1,4 @@
+// ▸ Вычисление формул таблиц (A1, диапазоны, функции)
 import 'models.dart';
 
 String colName(int c) {

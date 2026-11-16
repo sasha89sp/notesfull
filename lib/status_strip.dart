@@ -1,3 +1,4 @@
+// ▸ Глобальная строка статуса синхронизации (на любом экране)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'remote.dart';
